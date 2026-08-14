@@ -2,6 +2,19 @@
   "name": "dsh-session-manager",
   "version": "0.1.0",
   "description": "Session management settings section for dsh web: resume, outline, and delete any session",
+  "author": "vim0x3c",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vim0x3c/dsh-session-manager.git"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "dsh-plugin",
+    "session",
+    "web-ui"
+  ],
   "type": "module",
   "main": "lib/index.js",
   "exports": {

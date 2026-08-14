@@ -26,16 +26,13 @@ Requires a dsh whose application closure contains the plugin's `@deepseek-ai/dsh
 ```sh
 # from a release tarball
 dsh plugin --profile web add -w ./dsh-session-manager-0.1.0.tgz
-
-# or from a published npm package
-dsh plugin --profile web add -w dsh-session-manager
 ```
 
 > The `-w` flag is required: every profile ships a `pnpm-workspace.yaml`, so pnpm treats the profile directory as a workspace root and refuses a bare `add` with `ERR_PNPM_ADDING_TO_ROOT`. Then restart `dsh web`.
 
 The package is a `dsh.client` browser plugin that also declares `dsh.bundle.patch`, so `dsh plugin` installs it as an activatable layer and the profile's module fallback resolves its peers from the dsh application closure. The patch inserts a loader row with the package's own id (`dsh-session-manager`) — deliberately not the official `ui-session-manage` id, so it never collides with a deployment that already ships the built-in row. On a current web-app deployment that already carries the official session-management row, the two panels coexist (identical features); install this package when your dsh lacks the built-in row — an older or custom web profile.
 
-> Installing from a git URL fetches sources, not the built `lib/`, and the plugin's peer packages are not published to npm, so a git install cannot build or resolve them. Ship the tarball (or a published npm package) instead.
+> Installing from a git URL fetches sources, not the built `lib/`, and the plugin's peer packages are not published to npm, so a git install cannot build or resolve them. Ship the tarball instead.
 
 ## Usage
 

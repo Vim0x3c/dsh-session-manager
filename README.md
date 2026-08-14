@@ -1,65 +1,65 @@
 # dsh-session-manager
 
-English | [中文](README.zh.md)
+[English](README.en.md) | 中文
 
-A settings section for [dsh web](https://github.com/deepseek-ai/deepseek-harness) that lists **every session on your machine** — running, idle, and archived — and lets you:
+[dsh web](https://github.com/deepseek-ai/deepseek-harness) 的一个设置面板,列出**本机上的全部会话**——运行中、空闲、已归档——支持:
 
-- **Resume** a conversation: switch straight into it and leave the settings panel.
-- **Preview an outline** of its recent activity: turn/user/assistant counts, per-tool call breakdown, and the activity window.
-- **Delete** any session permanently, behind a confirmation dialog.
+- **继续会话**:一键切换进入该对话并关闭设置面板。
+- **预览大纲**:展示近期活动统计——轮次、用户/助手消息数、按工具分类的调用统计,以及活动窗口。
+- **删除会话**:确认后永久删除任意会话。
 
-It is the one surface where an **archived session** can still be seen: the workspace browser hides archived rows everywhere, so a session can only be removed here once it is archived.
+它是唯一还能看到**已归档会话**的界面:工作区浏览器处处隐藏归档行,因此会话一旦归档,只能在这里被移除。
 
 `dsh-plugin` topic: [#dsh-plugin](https://github.com/topics/dsh-plugin)
 
-## Features
+## 功能
 
-- **Full corpus**: every materialized session — attached and cold, archived or not — newest first, with the latest title, running/idle state, a not-started marker, last-updated time, and working directory.
-- **Resume**: opens the session through the browser sessions service and closes settings, landing on the conversation. Disabled while the session is running.
-- **Outline**: folds the `session.history` tail page entirely in the browser — no model-visible state is derived or persisted.
-- **Delete**: the host stops a live session first (cancel agent, await quiescence, detach — the open conversation grays out via `host/session-removed`), then removes the durable data. Loopback-pinned and irreversible.
+- **完整语料**:每个已物化会话——实时与冷会话、已归档或未归档——按最新优先排序,展示最新标题、运行/空闲状态、"未开始"标记、最后更新时间与工作目录。
+- **继续**:通过浏览器 sessions 服务打开会话并关闭设置面板,直接落到对话;运行中的会话禁用该按钮。
+- **大纲**:完全在浏览器中折叠 `session.history` 尾部页——不派生、不持久化任何模型可见状态。
+- **删除**:主机端先停止实时会话(取消 agent、等待静默、脱离——正在打开的对话通过 `host/session-removed` 置灰),再移除持久化数据。loopback 锁定,不可恢复。
 
-## Install
+## 安装
 
-Requires a dsh whose application closure contains the plugin's `@deepseek-ai/dsh-*` peer packages — any deployment with the `@deepseek-ai/dsh-web-app` bundle.
+要求 dsh 的应用闭包包含插件的 `@deepseek-ai/dsh-*` peer 包——即任何带 `@deepseek-ai/dsh-web-app` bundle 的部署。
 
 ```sh
-# from a release tarball
+# 从 release tarball
 dsh plugin --profile web add -w ./dsh-session-manager-0.1.0.tgz
 ```
 
-> The `-w` flag is required: every profile ships a `pnpm-workspace.yaml`, so pnpm treats the profile directory as a workspace root and refuses a bare `add` with `ERR_PNPM_ADDING_TO_ROOT`. Then restart `dsh web`.
+> `-w` 标志是必须的:每个 profile 都带一个 `pnpm-workspace.yaml`,pnpm 会把 profile 目录当作 workspace 根,裸 `add` 会报 `ERR_PNPM_ADDING_TO_ROOT`。安装后重启 `dsh web`。
 
-The package is a `dsh.client` browser plugin that also declares `dsh.bundle.patch`, so `dsh plugin` installs it as an activatable layer and the profile's module fallback resolves its peers from the dsh application closure. The patch inserts a loader row with the package's own id (`dsh-session-manager`) — deliberately not the official `ui-session-manage` id, so it never collides with a deployment that already ships the built-in row. On a current web-app deployment that already carries the official session-management row, the two panels coexist (identical features); install this package when your dsh lacks the built-in row — an older or custom web profile.
+该包是 `dsh.client` 浏览器插件,同时声明 `dsh.bundle.patch`,因此 `dsh plugin` 会将其安装为可激活的配置层,profile 的模块回退机制从 dsh 应用闭包解析其 peer 依赖。patch 插入的 loader 行使用包自身的 id(`dsh-session-manager`)——刻意不用官方的 `ui-session-manage` id,因此绝不会与已内置该行的部署冲突。在已带官方会话管理行的当前 web-app 部署上,两个面板并存(功能相同);本包适用于 dsh 未内置该功能的场景——旧版或自定义 web profile。
 
-> Installing from a git URL fetches sources, not the built `lib/`, and the plugin's peer packages are not published to npm, so a git install cannot build or resolve them. Ship the tarball instead.
+> 从 git URL 安装取到的是源码而非构建好的 `lib/`,且插件的 peer 包未发布到 npm,git 安装无法构建或解析它们;请改用 tarball。
 
-## Usage
+## 使用
 
-Open **Settings → Sessions** in dsh web. Each row shows the session's title, id, badges, and meta; the actions are Resume, Outline, and Delete.
+打开 dsh web 的 **设置 → 会话**。每行展示会话标题、id、徽标与元信息;操作有"继续""大纲""删除"。
 
-## Develop
+## 开发
 
 ```sh
 pnpm install
-pnpm build     # tsdown: emits lib/index.js, lib/invariant.js, lib/client.js
+pnpm build     # tsdown:产出 lib/index.js、lib/invariant.js、lib/client.js
 ```
 
-The build is self-contained (tsdown + lightningcss), with no monorepo checkout required. `prepare` runs the same build, so git installs that allow it produce the artifacts.
+构建自包含(tsdown + lightningcss),无需 monorepo 检出。`prepare` 运行同一构建,因此允许的 git 安装也会产出产物。
 
-## How it works
+## 工作原理
 
-- Reads `session.list` (every materialized session, archived included) and `workspace.list` for the archive set.
-- Resume writes nothing on the wire: it calls the browser sessions service `sessions.open`.
-- Outline reads `session.history` (the tail page) and folds it client-side.
-- Delete writes `session.delete`, the loopback-pinned privileged RPC that stops the agent before erasing the durable data.
+- 读取 `session.list`(每个已物化会话,含已归档)与 `workspace.list` 的归档集合。
+- 继续不经过 wire:调用浏览器 sessions 服务 `sessions.open`。
+- 大纲读取 `session.history`(尾部页)并在客户端折叠。
+- 删除写入 `session.delete`——先停止 agent、再擦除持久化数据的 loopback 特权 RPC。
 
-## Known Limitations
+## 已知限制
 
-- **Outline is the recent window, not the whole log** — it folds the `session.history` tail page, which carries at most a bounded number of messages.
-- **An archived id can outlive its session** — there is no unarchive write, so deleting an archived session leaves its (now stale) id in `archivedSessionIds`; the registry tolerates absent ids, so the stale entry is inert.
-- **No pushed corpus updates** — the page refreshes on its own deletes, its own open, and reconnects, not on host frames.
-- **Subagent sessions reject deletion** — the host answers `agent-busy` for a session with a live subagent owner.
+- **大纲只覆盖近期窗口,而非完整日志**——它折叠的是 `session.history` 尾部页,最多携带有限数量的消息。
+- **已归档 id 可能比会话存活更久**——没有取消归档的写入,删除已归档会话会在 `archivedSessionIds` 中留下(现已过期的)id;注册表容忍缺失 id,过期条目是惰性的。
+- **没有推送式语料更新**——页面在自身删除、自身打开与重连时刷新,而非响应 host 帧。
+- **subagent 会话拒绝删除**——带实时 subagent 所有者的会话,主机端返回 `agent-busy`。
 
 ## License
 

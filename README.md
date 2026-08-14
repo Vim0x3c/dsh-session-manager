@@ -10,7 +10,7 @@
 
 它是唯一还能看到**已归档会话**的界面:工作区浏览器处处隐藏归档行,因此会话一旦归档,只能在这里被移除。
 
-`dsh-plugin` topic: [#dsh-plugin](https://github.com/topics/dsh-plugin)
+`dsh-plugin` topic: (https://github.com/topics/dsh-plugin)
 
 ## 功能
 

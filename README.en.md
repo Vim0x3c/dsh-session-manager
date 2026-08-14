@@ -10,7 +10,7 @@ A settings section for [dsh web](https://github.com/deepseek-ai/deepseek-harness
 
 It is the one surface where an **archived session** can still be seen: the workspace browser hides archived rows everywhere, so a session can only be removed here once it is archived.
 
-`dsh-plugin` topic: [#dsh-plugin](https://github.com/topics/dsh-plugin)
+`dsh-plugin` topic:(https://github.com/topics/dsh-plugin)
 
 ## Features
 

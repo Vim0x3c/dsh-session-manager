@@ -24,7 +24,7 @@ import type { SessionManageInjected } from './SessionManageSection.tsx'
 import { SessionManageController } from './session-manage-store.ts'
 import { en, zh } from './locales.ts'
 
-const LOCALE_NS = 'settings.sessionManage'
+const LOCALE_NS = 'settings.dshSessionManager'
 
 /** Required services (cordis fiber inject). */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
@@ -64,7 +64,7 @@ export function apply(ctx: ClientContext): void {
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
-    id: 'session-manage',
+    id: 'dsh-session-manager',
     order: 30,
     label: () => ctx.locale.bind(LOCALE_NS)('nav'),
     locale: LOCALE_NS,

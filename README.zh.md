@@ -25,13 +25,15 @@ English | [中文](README.zh.md)
 
 ```sh
 # 从 release tarball
-dsh plugin --profile web add ./dsh-session-manager-0.1.0.tgz
+dsh plugin --profile web add -w ./dsh-session-manager-0.1.0.tgz
 
 # 或从已发布的 npm 包
-dsh plugin --profile web add dsh-session-manager
+dsh plugin --profile web add -w dsh-session-manager
 ```
 
-该包是 `dsh.client` 浏览器插件,同时声明 `dsh.bundle.patch`,因此 `dsh plugin` 会将其安装为可激活的配置层,profile 的模块回退机制从 dsh 应用闭包解析其 peer 依赖。patch 按包名插入 `ui-session-manage` 行;在已带官方 web-app 行的部署上叠加是无害的 no-op。
+> `-w` 标志是必须的:每个 profile 都带一个 `pnpm-workspace.yaml`,pnpm 会把 profile 目录当作 workspace 根,裸 `add` 会报 `ERR_PNPM_ADDING_TO_ROOT`。安装后重启 `dsh web`。
+
+该包是 `dsh.client` 浏览器插件,同时声明 `dsh.bundle.patch`,因此 `dsh plugin` 会将其安装为可激活的配置层,profile 的模块回退机制从 dsh 应用闭包解析其 peer 依赖。patch 插入的 loader 行使用包自身的 id(`dsh-session-manager`)——刻意不用官方的 `ui-session-manage` id,因此绝不会与已内置该行的部署冲突。在已带官方会话管理行的当前 web-app 部署上,两个面板并存(功能相同);本包适用于 dsh 未内置该功能的场景——旧版或自定义 web profile。
 
 > 从 git URL 安装取到的是源码而非构建好的 `lib/`,且插件的 peer 包未发布到 npm,git 安装无法构建或解析它们;请改用 tarball(或已发布的 npm 包)。
 

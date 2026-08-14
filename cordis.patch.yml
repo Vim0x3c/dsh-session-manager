@@ -7,9 +7,10 @@
 # the composed configuration. The row names the package itself, so the Loader
 # resolves it from the profile's own node_modules.
 #
-# The row id `ui-session-manage` matches the official web-app bundle's built-in
-# row, so layering this package over a deployment that already carries that row
-# is a harmless no-op (same id, later layer wins).
+# The row id is deliberately NOT `ui-session-manage`: official web-app bundles
+# already carry a row with that id (the shipped client plugin), and a duplicate
+# loader entry id fails the boot. This package's own id keeps it installable
+# alongside the official row on any deployment.
 - insert:
-    - id: ui-session-manage
+    - id: dsh-session-manager
       name: dsh-session-manager

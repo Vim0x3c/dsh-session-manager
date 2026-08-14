@@ -43,7 +43,7 @@ export interface SessionManageInjected {
 /** Full component props. */
 export type SessionManageSectionProps =
   PropsRuntime<'settings.section'>
-  & PropsLocale<'settings.sessionManage'>
+  & PropsLocale<'settings.dshSessionManager'>
   & InjectFace<SessionManageInjected>
 
 /** Render the outline stats block: counts plus the tool-call breakdown. */
@@ -280,6 +280,6 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Session-management section copy. */
-    'settings.sessionManage': SessionManageKey
+    'settings.dshSessionManager': SessionManageKey
   }
 }

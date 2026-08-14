@@ -1,0 +1,259 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.loading,
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.errorBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Rows, not cards: a session is identified by title + id, and the action is
+   one delete button — a card would waste the space a long id needs. */
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-dimmed);
+  flex: none;
+}
+
+.dotRunning {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.badge {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--dsw-alias-label-tertiary);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.rowId {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.rowActions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.resumeButton {
+  flex: none;
+  padding: 0 10px;
+  height: 28px;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.iconDanger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.iconDanger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.deleteDialog {
+  max-width: 420px;
+}
+
+.deleteConfirm {
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-bg-layer-3);
+}
+
+.deleteTarget {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+
+.outlineDialog {
+  max-width: 480px;
+}
+
+.outlineTarget {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+
+.outlineStats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.outlineStat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.outlineStat dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.outlineStat dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.outlineTools {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.outlineTools li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.outlineTools code {
+  color: var(--dsw-alias-label-primary);
+  word-break: break-all;
+}
+
+.outlineNone {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.outlineRange {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  word-break: break-all;
+}

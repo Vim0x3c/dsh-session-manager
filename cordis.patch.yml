@@ -1,0 +1,15 @@
+# Standalone-install layer for the session-management settings section.
+#
+# This package is a `dsh.client` browser plugin: by itself, `dsh plugin add`
+# would install it as a plain dependency and activate nothing. Declaring this
+# patch (via `dsh.bundle.patch` in package.json) makes the package a bundle, so
+# `dsh plugin` appends it to the profile's layer stack and this insert lands in
+# the composed configuration. The row names the package itself, so the Loader
+# resolves it from the profile's own node_modules.
+#
+# The row id `ui-session-manage` matches the official web-app bundle's built-in
+# row, so layering this package over a deployment that already carries that row
+# is a harmless no-op (same id, later layer wins).
+- insert:
+    - id: ui-session-manage
+      name: dsh-session-manager

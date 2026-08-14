@@ -1,6 +1,6 @@
 # dsh-session-manager
 
-中文 | [English](README.md)
+[中文](README.md) | English
 
 A settings section for [dsh web](https://github.com/deepseek-ai/deepseek-harness) that lists **every session on your machine** — running, idle, and archived — and lets you:
 

@@ -4,13 +4,14 @@
 export type SessionManageKey =
   | 'nav' | 'sectionIntro'
   | 'loading' | 'error' | 'retry' | 'empty'
-  | 'running' | 'idle' | 'blank' | 'archived'
+  | 'running' | 'idle' | 'blank' | 'archived' | 'managed'
   | 'updatedAt' | 'cwd' | 'noTitle'
   | 'resume' | 'resuming'
   | 'outline' | 'outlineTitle' | 'outlineIntro' | 'outlineLoading'
   | 'outlineTurns' | 'outlineUserMessages' | 'outlineAssistantMessages' | 'outlineToolCalls'
   | 'outlineNoTools' | 'outlineRange'
   | 'delete' | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting'
+  | 'deleteUnavailable'
   | 'cancel' | 'close'
 
 /** English copy. */
@@ -29,6 +30,7 @@ export const en: Record<SessionManageKey, string> = {
   idle: 'Idle',
   blank: 'Not started',
   archived: 'Archived',
+  managed: 'Managed by parent',
   updatedAt: 'Updated',
   cwd: 'Directory',
   noTitle: 'Untitled session',
@@ -51,6 +53,7 @@ export const en: Record<SessionManageKey, string> = {
     + 'are permanently deleted. This cannot be undone.',
   deleteConfirm: 'Delete',
   deleting: 'Deleting…',
+  deleteUnavailable: 'Deletion is only available from a local (loopback) browser session, or is not supported by this dsh version.',
   cancel: 'Cancel',
   close: 'Close',
 }
@@ -69,6 +72,7 @@ export const zh: Record<SessionManageKey, string> = {
   idle: '空闲',
   blank: '未开始',
   archived: '已归档',
+  managed: '由父会话管理',
   updatedAt: '更新时间',
   cwd: '目录',
   noTitle: '未命名会话',
@@ -90,6 +94,7 @@ export const zh: Record<SessionManageKey, string> = {
     '若会话正在运行将被停止,其对话记录与持久化数据将被永久删除。此操作不可恢复。',
   deleteConfirm: '删除',
   deleting: '正在删除…',
+  deleteUnavailable: '删除仅在本机(loopback)浏览器会话内可用,或当前 dsh 版本不支持该操作。',
   cancel: '取消',
   close: '关闭',
 }

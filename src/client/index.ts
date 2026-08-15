@@ -34,8 +34,14 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
-  const { api } = ctx.get('connection') as ConnectionHandle
+  const { api, isLoopback } = ctx.get('connection') as ConnectionHandle
   const controller = new SessionManageController(api)
+
+  // Deletion is loopback-privileged on the host and new in recent dsh versions
+  // (`session.delete`). On a non-loopback page, or a host that does not expose
+  // the RPC, the delete entry must be hidden — not merely fail at click time.
+  const deleteCapable = isLoopback && controller.hasDeleteCapability()
+  controller.setCanDelete(deleteCapable)
 
   ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-session-manager: settings section dictionaries')
 

@@ -96,6 +96,7 @@ function SessionRow({
   loadOutline,
   confirmDelete,
   close,
+  canDelete,
 }: {
   row: SessionManageState['rows'][number]
   t: (key: SessionManageKey) => string
@@ -103,12 +104,20 @@ function SessionRow({
   loadOutline: (id: string) => Promise<void>
   confirmDelete: (id: string) => void
   close: () => void
+  canDelete: boolean
 }): ReactNode {
   const title = row.title ?? t('noTitle')
+  // A subagent/live child session is owned and deleted by its parent; the host
+  // rejects a direct delete with `agent-busy`, so hide the entry rather than
+  // offer an action that is guaranteed to fail.
+  const deletable = canDelete
+    && row.origin !== 'subagent'
+    && row.parentSessionId === undefined
   const badges = [
     row.archived ? t('archived') : null,
     row.running ? t('running') : t('idle'),
     row.blank ? t('blank') : null,
+    ...deletable ? [] : [t('managed')],
   ].filter((badge): badge is string => badge !== null)
   return (
     <li className={css.row}>
@@ -149,15 +158,17 @@ function SessionRow({
         >
           <IconListPenOutline16 />
         </button>
-        <button
-          type="button"
-          className={`${css.iconButton} ${css.iconDanger}`}
-          data-tip={t('delete')}
-          aria-label={`${t('delete')}: ${title}`}
-          onClick={() => { confirmDelete(row.sessionId) }}
-        >
-          <IconTrashOutline16 />
-        </button>
+        {deletable ? (
+          <button
+            type="button"
+            className={`${css.iconButton} ${css.iconDanger}`}
+            data-tip={t('delete')}
+            aria-label={`${t('delete')}: ${title}`}
+            onClick={() => { confirmDelete(row.sessionId) }}
+          >
+            <IconTrashOutline16 />
+          </button>
+        ) : null}
       </div>
     </li>
   )
@@ -179,7 +190,6 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
   const outlineRow = state.outline === null
     ? undefined
     : state.rows.find(row => row.sessionId === state.outline?.sessionId)
-
   useEffect(() => {
     void load()
   }, [load])
@@ -210,6 +220,7 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
               loadOutline={loadOutline}
               confirmDelete={confirmDelete}
               close={close}
+              canDelete={state.canDelete}
             />
           ))}
         </ul>
@@ -250,6 +261,12 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
               <code>{pendingRow.sessionId}</code>
             </p>
           )}
+        {state.deleteError === null
+          ? null
+          : <p className={css.deleteError} role="alert">{state.deleteError}</p>}
+        {state.canDelete
+          ? null
+          : <p className={css.deleteNote} role="note">{t('deleteUnavailable')}</p>}
       </Modal>
       <Modal
         open={state.outline !== null}

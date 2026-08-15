@@ -26,11 +26,17 @@
 **删除依赖 `session.delete`**——这是 dsh 近期新增的 loopback 特权 RPC。在非 loopback 页面、或宿主未暴露该方法时,删除按钮会被隐藏(若弹窗已打开则显示内联提示),仅保留"继续/大纲"。请将插件与包含 `session.delete` 的宿主版本一起发布。
 
 ```sh
-# 从 release tarball
-dsh plugin --profile web add -w ./dsh-session-manager-0.1.0.tgz
+# 1. 在插件目录构建并打包出 tarball(产物名为 <name>-<version>.tgz,如 dsh-session-manager-0.1.0.tgz)
+pnpm install
+pnpm pack
+
+# 2. 用 tarball 安装到 profile(用 1 产出的实际文件名替换 <file>.tgz)
+dsh plugin --profile web add -w ./<file>.tgz
 ```
 
 > `-w` 标志是必须的:每个 profile 都带一个 `pnpm-workspace.yaml`,pnpm 会把 profile 目录当作 workspace 根,裸 `add` 会报 `ERR_PNPM_ADDING_TO_ROOT`。安装后重启 `dsh web`。
+
+> Tarball 是构建产物(`.tgz` 在 gitignore 中),不会随仓库或 release 自动生成——发布时请用上面的 `pnpm pack` 现场生成,而不是引用一个已删除的文件。
 
 该包是 `dsh.client` 浏览器插件,同时声明 `dsh.bundle.patch`,因此 `dsh plugin` 会将其安装为可激活的配置层,profile 的模块回退机制从 dsh 应用闭包解析其 peer 依赖。patch 插入的 loader 行使用包自身的 id(`dsh-session-manager`)——刻意不用官方的 `ui-session-manage` id,因此绝不会与已内置该行的部署冲突。本包定位为**兼容/扩展面板:仅在 dsh 未内置会话管理行时安装**。在已带官方会话管理行的当前 web-app 部署上,两个面板并存(功能相同),多出的一个是冗余的。
 

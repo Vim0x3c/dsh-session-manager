@@ -26,11 +26,18 @@ Requires a dsh whose application closure contains the plugin's `@deepseek-ai/dsh
 **Deletion requires `session.delete`**, a loopback-privileged RPC added recently in dsh. On a non-loopback page, or a host that does not expose the method, the delete button is hidden (with an inline note when a dialog is already open); only the resume/outline actions remain. Version this plugin with a host that ships `session.delete` (the harness working tree has it; older releases may not).
 
 ```sh
-# from a release tarball
-dsh plugin --profile web add -w ./dsh-session-manager-0.1.0.tgz
+# 1. In the plugin directory, build and pack a tarball (emitted as <name>-<version>.tgz,
+#    e.g. dsh-session-manager-0.1.0.tgz).
+pnpm install
+pnpm pack
+
+# 2. Install that tarball into a profile (replace <file>.tgz with the real file from step 1).
+dsh plugin --profile web add -w ./<file>.tgz
 ```
 
 > The `-w` flag is required: every profile ships a `pnpm-workspace.yaml`, so pnpm treats the profile directory as a workspace root and refuses a bare `add` with `ERR_PNPM_ADDING_TO_ROOT`. Then restart `dsh web`.
+
+> The tarball is a build artifact (`.tgz` is git-ignored) that is not committed or auto-generated on release — produce it with `pnpm pack` as above, not by referencing a deleted file.
 
 The package is a `dsh.client` browser plugin that also declares `dsh.bundle.patch`, so `dsh plugin` installs it as an activatable layer and the profile's module fallback resolves its peers from the dsh application closure. The patch inserts a loader row with the package's own id (`dsh-session-manager`) — deliberately not the official `ui-session-manage` id, so it never collides with a deployment that already ships the built-in row. It is positioned as a compatibility/extension panel: **install it only when your dsh lacks the built-in Session-management row**. On a current web-app deployment that already carries the official row, the two panels coexist with identical features; the extra one is redundant.
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Session management settings section for dsh web: resume, outline, and delete any session",
   "author": "vim0x3c",
   "repository": {

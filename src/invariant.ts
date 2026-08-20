@@ -15,9 +15,9 @@ export const name = 'dsh-session-manager-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this is a browser-side surface plugin whose node half
- * owns no event stream or mutable runtime data; session deletion is a host
- * contract (persistence + agent teardown) covered by the host-side packages.
+ * The Host half owns a transport route and a short-lived per-id operation map,
+ * but no durable state of its own. Persistence and registry consistency are
+ * checked at each deletion boundary instead of by a background invariant.
  */
 const install: InvariantInstaller = () => {}
 

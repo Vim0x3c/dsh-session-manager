@@ -34,8 +34,8 @@ export interface SessionRow {
   cwd?: string
   /**
    * fork/spawn lineage (session.header.parentSession passthrough); absent for
-   * root sessions. Preserved so the UI can avoid offering a delete on a child
-   * subagent session the host refuses (`agent-busy`).
+   * root sessions. Ordinary forks remain deletable; only `origin: subagent`
+   * identifies a child lifecycle managed by its parent.
    */
   parentSessionId?: SessionId
   /** Coarse durable origin; 'subagent' rows are deleted by their parent, not here. */
@@ -95,6 +95,13 @@ export interface SessionOutline {
   /** Last event time, epoch ms. */
   updatedAt: number
 }
+
+/** Transport adapter for the plugin-owned session.delete endpoint. */
+export type DeleteSession = (sessionId: SessionId) => Promise<{
+  result:
+    | { ok: true; value: { deleted: boolean } }
+    | { ok: false; error: { message: string } }
+}>
 
 const INITIAL: SessionManageState = {
   status: 'idle',
@@ -181,7 +188,19 @@ export class SessionManageController {
   /** As above, for outline previews (consecutive dialogs must not race). */
   private outlineSeq = 0
 
-  constructor(private readonly api: Pick<IApiClient, 'sessions' | 'workspace'>) {}
+  private readonly deleteSession: DeleteSession | undefined
+
+  constructor(
+    private readonly api: Pick<IApiClient, 'sessions' | 'workspace'>,
+    deleteSession?: DeleteSession,
+  ) {
+    const nativeDelete = (api.sessions as Record<string, unknown>).delete
+    this.deleteSession = deleteSession ?? (typeof nativeDelete === 'function'
+      ? sessionId => (nativeDelete as (req: { sessionId: SessionId }) => ReturnType<DeleteSession>)(
+          { sessionId },
+        )
+      : undefined)
+  }
 
   private set(patch: Partial<SessionManageState>): void {
     this.store.set({ ...this.store.getSnapshot(), ...patch })
@@ -202,12 +221,11 @@ export class SessionManageController {
   }
 
   /**
-   * Whether the host bus exposes the session.delete RPC on this deployment. The
-   * plugin pins code to some dsh versions; on an older host where the method is
-   * absent the delete entry must hide rather than throw at click time.
+   * Whether a delete transport was installed. Standalone installs supply the
+   * plugin-owned endpoint; newer harness builds may supply the native method.
    */
   hasDeleteCapability(): boolean {
-    return typeof (this.api.sessions as Record<string, unknown>).delete === 'function'
+    return this.deleteSession !== undefined
   }
 
   /**
@@ -312,16 +330,13 @@ export class SessionManageController {
       this.set({ deleteError: 'Deletion is only available from a local (loopback) browser session.' })
       return
     }
-    const deleteFn = (this.api.sessions as Record<string, unknown>).delete
-    if (typeof deleteFn !== 'function') {
-      this.set({ deleteError: 'This dsh version does not expose session deletion.' })
+    if (this.deleteSession === undefined) {
+      this.set({ deleteError: 'The session deletion endpoint is not available.' })
       return
     }
     this.set({ deleting: true, deleteError: null })
     try {
-      const response = await (deleteFn as (req: { sessionId: SessionId }) => Promise<{
-        result: { ok: boolean; error: { message: string }; value?: { deleted: true } }
-      }>)({ sessionId: pendingDelete as SessionId })
+      const response = await this.deleteSession(pendingDelete as SessionId)
       if (!response.result.ok) {
         this.set({ deleting: false, deleteError: response.result.error.message })
         return

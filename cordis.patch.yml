@@ -1,4 +1,4 @@
-# Standalone-install layer for the session-management settings section.
+# Standalone-install layer for the complete session manager.
 #
 # This package is a `dsh.client` browser plugin: by itself, `dsh plugin add`
 # would install it as a plain dependency and activate nothing. Declaring this
@@ -7,10 +7,9 @@
 # the composed configuration. The row names the package itself, so the Loader
 # resolves it from the profile's own node_modules.
 #
-# The row id is deliberately NOT `ui-session-manage`: official web-app bundles
-# already carry a row with that id (the shipped client plugin), and a duplicate
-# loader entry id fails the boot. This package's own id keeps it installable
-# alongside the official row on any deployment.
+# This one row activates both package halves: the Host plugin installs the
+# loopback deletion endpoint and the `dsh.client` manifest exposes the browser
+# settings panel. Users do not patch deepseek-harness separately.
 - insert:
     - id: dsh-session-manager
       name: dsh-session-manager

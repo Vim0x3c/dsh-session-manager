@@ -10,7 +10,7 @@
  * irreversible.
  */
 
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ctx.remote merge and the forwarded-event key face into
@@ -34,12 +34,16 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
  * @param ctx - the browser plugin context.
  */
 export function apply(ctx: ClientContext): void {
-  const { api, isLoopback } = ctx.get('connection') as ConnectionHandle
-  const controller = new SessionManageController(api)
+  const connection = ctx.get('connection') as ConnectionHandle
+  const { api, isLoopback } = connection
+  const controller = new SessionManageController(api, async (sessionId) => ({
+    result: await connection.rpc.call('/api', 'session.delete', { sessionId }) as
+      | { ok: true; value: { deleted: boolean } }
+      | { ok: false; error: { message: string } },
+  }))
 
-  // Deletion is loopback-privileged on the host and new in recent dsh versions
-  // (`session.delete`). On a non-loopback page, or a host that does not expose
-  // the RPC, the delete entry must be hidden — not merely fail at click time.
+  // The bundled Host half always installs session.delete. It remains hidden on
+  // non-loopback pages because the Host endpoint rejects those authorities.
   const deleteCapable = isLoopback && controller.hasDeleteCapability()
   controller.setCanDelete(deleteCapable)
 

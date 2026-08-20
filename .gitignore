@@ -2,3 +2,7 @@ node_modules/
 lib/
 *.tgz
 .DS_Store
+
+# Local backups and workspace config
+*.bak-*
+pnpm-workspace.yaml

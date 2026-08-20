@@ -22,6 +22,18 @@ declare module '@deepseek-ai/cordis' {
     inject(keys: string[], setup: (ctx: this) => void): void
     provide(name: string, value: unknown): void
     plugin(fn: unknown): PromiseLike<{ dispose(): void }>
+    readonly root: { readonly fiber: unknown }
+    readonly registry: { values(): Iterable<unknown> }
+    readonly logger: { warn(message: string): void }
+  }
+}
+
+declare module '@deepseek-ai/dsh-host-webserver' {
+  import type { IncomingMessage, ServerResponse } from 'node:http'
+  export interface WebRoute {
+    kind: 'exact' | 'prefix'
+    path: string
+    handler(req: IncomingMessage, res: ServerResponse): void | Promise<void>
   }
 }
 
@@ -119,11 +131,6 @@ declare module '@deepseek-ai/dsh-api-remotes/client' {
     agentPreset?: string
     projections?: { values: { title?: string | null } }
   }
-  export interface ConnectionHandle {
-    api: IApiClient
-    isLoopback: boolean
-    start(): { stop(): void }
-  }
   export interface IApiClient {
     sessions: {
       list(req: { cursor?: string }): Promise<RpcResponse<{ items: SessionSummary[] }>>
@@ -132,6 +139,20 @@ declare module '@deepseek-ai/dsh-api-remotes/client' {
     }
     workspace: {
       list(req: Record<string, never>): Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
+    }
+  }
+}
+
+declare module '@deepseek-ai/dsh-client-connection/client' {
+  import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+  export interface ConnectionHandle {
+    api: IApiClient
+    isLoopback: boolean
+    rpc: {
+      call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<
+        | { ok: true; value: unknown }
+        | { ok: false; error: { message: string } }
+      >
     }
   }
 }

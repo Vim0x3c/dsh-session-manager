@@ -137,13 +137,25 @@ describe('SessionManageController', () => {
   it('reflects an absent host session.delete method in hasDeleteCapability', async () => {
     const { controller } = makeController({ sessions: [session({ sessionId: 's1' })] })
     expect(controller.hasDeleteCapability()).toBe(true)
-    ;(controller as any).api.sessions.delete = undefined
-    expect(controller.hasDeleteCapability()).toBe(false)
+    const api = {
+      sessions: {
+        list: async () => ({ result: { ok: true, value: { items: [] } } }),
+        history: async () => ({ result: { ok: true, value: { events: [] } } }),
+      },
+      workspace: { list: async () => ({ result: { ok: true, value: { archivedSessionIds: [] } } }) },
+    } as any
+    expect(new SessionManageController(api).hasDeleteCapability()).toBe(false)
   })
 
   it('explains that deletion is unsupported when the host method is absent', async () => {
-    const { controller } = makeController({ sessions: [session({ sessionId: 's1' })] })
-    ;(controller as any).api.sessions.delete = undefined
+    const api = {
+      sessions: {
+        list: async () => ({ result: { ok: true, value: { items: [toSummaryLike(session({ sessionId: 's1' }))] } } }),
+        history: async () => ({ result: { ok: true, value: { events: [] } } }),
+      },
+      workspace: { list: async () => ({ result: { ok: true, value: { archivedSessionIds: [] } } }) },
+    } as any
+    const controller = new SessionManageController(api)
     await controller.load()
     controller.setCanDelete(true)
     controller.confirmDelete('s1')

@@ -2,79 +2,100 @@
 
 [中文](README.md) | English
 
-A settings section for [dsh web](https://github.com/deepseek-ai/deepseek-harness) that lists **every session on your machine** — running, idle, and archived — and lets you:
+An installable session-management plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It lists every materialized local session, including running, idle, and archived sessions, and provides Resume, Outline, and permanent Delete actions.
 
-- **Resume** a conversation: switch straight into it and leave the settings panel.
-- **Preview an outline** of its recent activity: turn/user/assistant counts, per-tool call breakdown, and the activity window.
-- **Delete** any session permanently, behind a confirmation dialog.
+## Important
 
-It is the one surface where an **archived session** can still be seen: the workspace browser hides archived rows everywhere, so a session can only be removed here once it is archived.
+**No deepseek-harness source changes are required.**
 
-`dsh-plugin` topic:(https://github.com/topics/dsh-plugin)
+Starting with `0.2.0`, this package contains all of the following:
+
+- the browser Session-management panel;
+- the Host-side `session.delete` RPC;
+- live Agent stop and Session-detach compatibility logic;
+- JSONL and SQLite durable deletion;
+- loopback, Host, Origin, and Fetch Metadata trust checks.
+
+Users install this plugin and restart `dsh web`. They do not copy code into harness or edit `SessionsApi`, `AgentLoop`, `SessionPersistence`, or any harness file.
 
 ## Features
 
-- **Full corpus**: every materialized session — attached and cold, archived or not — newest first, with the latest title, running/idle state, a not-started marker, last-updated time, and working directory.
-- **Resume**: opens the session through the browser sessions service and closes settings, landing on the conversation. Disabled while the session is running.
-- **Outline**: folds the `session.history` tail page entirely in the browser — no model-visible state is derived or persisted.
-- **Delete**: the host stops a live session first (cancel agent, await quiescence, detach — the open conversation grays out via `host/session-removed`), then removes the durable data. Loopback-pinned and irreversible.
+- **Complete session list**: live and cold sessions, archived or not, with title, status, working directory, and update time.
+- **Resume**: opens an existing conversation through the browser sessions service.
+- **Outline**: folds the recent `session.history` window in the browser into turn, message, and tool-call counts.
+- **Permanent delete**: stops and drains a live Agent, detaches its Agent/Session registrations, waits for final persistence retirement, and then removes durable data.
+- **JSONL**: removes the complete session-owned directory, including the log and colocated snapshots.
+- **SQLite**: deletes through the active backend connection in a transaction; event rows are removed by the schema's foreign-key cascade.
+- **Forward compatibility**: native `AgentLoop.stop` and `SessionPersistence.delete` methods are preferred when a future harness supplies them.
+
+Ordinary forks are deletable. Child sessions with `origin: subagent` remain owned by their parent Agent; the UI hides Delete and direct requests return `agent-busy`.
+
+## Compatibility
+
+- Target: DeepSeek Harness `0.1.0-rc.8`.
+- Supported first-party persistence backends: `session-persistence-jsonl` and `session-persistence-sqlite`.
+- A custom persistence backend must expose `delete(id)` itself. Unknown storage is rejected explicitly rather than guessed or modified directly.
+- The delete endpoint accepts loopback authorities only: `localhost`, `127.0.0.0/8`, and `[::1]`. A page opened through a LAN address retains Resume and Outline but does not offer Delete.
+
+The Host implementation fills three interfaces missing from rc.8 and uses rc.8 lifecycle/coordinator internals. Re-run this repository's tests before upgrading harness. As native upstream methods become available, the plugin selects them first and avoids the relevant compatibility path.
 
 ## Install
 
-Requires a dsh whose application closure contains the plugin's `@deepseek-ai/dsh-*` peer packages — any deployment with the `@deepseek-ai/dsh-web-app` bundle.
-
-**Deletion requires `session.delete`**, a loopback-privileged RPC added recently in dsh. On a non-loopback page, or a host that does not expose the method, the delete button is hidden (with an inline note when a dialog is already open); only the resume/outline actions remain. Version this plugin with a host that ships `session.delete` (the harness working tree has it; older releases may not).
+Build the distribution tarball in this repository:
 
 ```sh
-# 1. In the plugin directory, build and pack a tarball (emitted as <name>-<version>.tgz,
-#    e.g. dsh-session-manager-0.1.0.tgz).
 pnpm install
 pnpm pack
-
-# 2. Install that tarball into a profile (replace <file>.tgz with the real file from step 1).
-dsh plugin --profile web add -w ./<file>.tgz
 ```
 
-> The `-w` flag is required: every profile ships a `pnpm-workspace.yaml`, so pnpm treats the profile directory as a workspace root and refuses a bare `add` with `ERR_PNPM_ADDING_TO_ROOT`. Then restart `dsh web`.
+Install the emitted `dsh-session-manager-0.2.0.tgz` into the web profile:
 
-> The tarball is a build artifact (`.tgz` is git-ignored) that is not committed or auto-generated on release — produce it with `pnpm pack` as above, not by referencing a deleted file.
+```sh
+dsh plugin --profile web add -w ./dsh-session-manager-0.2.0.tgz
+```
 
-The package is a `dsh.client` browser plugin that also declares `dsh.bundle.patch`, so `dsh plugin` installs it as an activatable layer and the profile's module fallback resolves its peers from the dsh application closure. The patch inserts a loader row with the package's own id (`dsh-session-manager`) — deliberately not the official `ui-session-manage` id, so it never collides with a deployment that already ships the built-in row. It is positioned as a compatibility/extension panel: **install it only when your dsh lacks the built-in Session-management row**. On a current web-app deployment that already carries the official row, the two panels coexist with identical features; the extra one is redundant.
+Restart `dsh web` after installation.
 
-> Installing from a git URL fetches sources, not the built `lib/`, and the plugin's peer packages are not published to npm, so a git install cannot build or resolve them. Ship the tarball instead.
+The `-w` flag is required because each profile contains a `pnpm-workspace.yaml`; a bare add fails with `ERR_PNPM_ADDING_TO_ROOT`. Distribute the built tarball. A git URL installs sources and requires a successful build on the target machine, which can otherwise leave `lib/` missing.
+
+The package's `dsh.bundle.patch` inserts one `dsh-session-manager` Loader row. That row activates both the Host plugin and its `dsh.client` browser half, with peers resolved from the dsh application closure. Installers do not edit the profile's `cordis.patch.yml` manually.
 
 ## Usage
 
-Open **Settings → Sessions** in dsh web. Each row shows the session's title, id, badges, and meta; the actions are Resume, Outline, and Delete. Subagent/child sessions (live or forked) and any delete on a non-loopback page or capability-less host show no Delete action — the badge reads *Managed by parent*.
+Open **Settings -> Sessions**:
 
-## Develop
+- Resume enters an existing conversation;
+- Outline displays recent activity statistics;
+- Delete opens a confirmation dialog and permanently removes the session.
+
+Deletion is irreversible. Deleting an open live conversation removes it from the Host registries, allowing existing surfaces to react through the normal `host/session-removed` lifecycle.
+
+## How It Works
+
+1. The browser reads `session.list` and `workspace.list` for the complete corpus and archive state.
+2. Delete uses Connection's generic RPC caller to POST `/api/session.delete`.
+3. The plugin Host half applies the same loopback and same-origin checks used by harness.
+4. For a live session it calls native `AgentLoop.stop`, or locates rc.8's exact `agentLoop.lifecycle(<id>)` disposer and awaits complete teardown.
+5. It waits for persistence retirement, then deletes JSONL/SQLite data on the coordinator's per-session serialization chain and clears cached state.
+6. The client reloads the corpus so the view reflects final Host state.
+
+## Development
 
 ```sh
-pnpm install
-pnpm build          # tsdown: emits lib/index.js, lib/invariant.js, lib/client.js
-pnpm typecheck      # tsc --noEmit against dev-only type stubs (see below)
-pnpm test           # vitest: foldOutline + controller behavior
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm pack
 ```
 
-The build is self-contained (tsdown + lightningcss), with no monorepo checkout required. `prepare` runs the same build, so git installs that allow it produce the artifacts.
-
-**Typecheck in a clean checkout**: the `@deepseek-ai/dsh-*` peers are not published to npm, so `tsc` cannot resolve them from a fresh install. `tsconfig.typecheck.json` includes the ambient declarations in `types/stubs.d.ts`, which mirror the small slice of the dsh client API this plugin uses — enough to typecheck the plugin's own source without the peers. If you have a dsh workspace mounted, drop that file so tsc resolves the real packages (see `src/client/*` imports).
-
-## How it works
-
-- Reads `session.list` (every materialized session, archived included) and `workspace.list` for the archive set.
-- Resume writes nothing on the wire: it calls the browser sessions service `sessions.open`.
-- Outline reads `session.history` (the tail page) and folds it client-side.
-- Delete writes `session.delete`, the loopback-pinned privileged RPC that stops the agent before erasing the durable data.
-- List and outline loads are last-request-wins: concurrent reads (a reconnect racing a retry, or consecutive outline dialogs) never let a slow older response clobber a fresher snapshot.
+Tests cover controller races, loopback/Origin rejection, live lifecycle teardown, JSONL directory deletion, SQLite transactions, subagent refusal, and same-id request coalescing.
 
 ## Known Limitations
 
-- **Outline is the recent window, not the whole log** — it folds the `session.history` tail page, which carries at most a bounded number of messages.
-- **An archived id can outlive its session** — there is no unarchive write, so deleting an archived session leaves its (now stale) id in `archivedSessionIds`; the registry tolerates absent ids, so the stale entry is inert.
-- **No pushed corpus updates** — the page refreshes on its own deletes, its own open, and reconnects, not on host frames or cross-tab changes.
-- **Subagent/child sessions are not deletable from here** — the host owns their lifecycle via their parent (`agent-busy` on a direct delete); the delete entry is hidden rather than offered and rejected.
-- **Deletion is loopback-only and recent** — a non-loopback page or a host without `session.delete` hides deletion (see Install).
+- Outline describes the recent `session.history` window, not the complete log.
+- Deleting an archived session does not remove its stale id from `archivedSessionIds`; that inert registry entry cannot restore session data.
+- The corpus has no cross-tab push refresh; the panel reloads after deletion and reconnection.
+- Delete is unavailable from non-loopback pages.
 
 ## License
 

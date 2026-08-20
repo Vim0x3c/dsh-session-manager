@@ -107,17 +107,14 @@ function SessionRow({
   canDelete: boolean
 }): ReactNode {
   const title = row.title ?? t('noTitle')
-  // A subagent/live child session is owned and deleted by its parent; the host
-  // rejects a direct delete with `agent-busy`, so hide the entry rather than
-  // offer an action that is guaranteed to fail.
-  const deletable = canDelete
-    && row.origin !== 'subagent'
-    && row.parentSessionId === undefined
+  // A subagent session is owned and deleted by its parent; ordinary forks may
+  // carry parentSession lineage but remain independent deletion targets.
+  const deletable = canDelete && row.origin !== 'subagent'
   const badges = [
     row.archived ? t('archived') : null,
     row.running ? t('running') : t('idle'),
     row.blank ? t('blank') : null,
-    ...deletable ? [] : [t('managed')],
+    row.origin === 'subagent' ? t('managed') : null,
   ].filter((badge): badge is string => badge !== null)
   return (
     <li className={css.row}>

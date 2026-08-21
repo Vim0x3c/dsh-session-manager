@@ -30,6 +30,27 @@ function coordinator(id: string) {
   }
 }
 
+/** Multi-identity coordinator that records the serialize (deletion) order. */
+function familyCoordinator(ids: string[]) {
+  const coordinatorOrder: string[] = []
+  const state = {
+    order: coordinatorOrder,
+    states: new Map(ids.map(id => [id, { cursor: 1 }])),
+    live: new Map(),
+    retirements: new Map(),
+    preparations: {
+      entries: new Map<string, { phase: string }>(),
+      invalidate: () => {},
+    },
+    serialize: async (target: string, op: () => unknown) => {
+      const value = await op()
+      coordinatorOrder.push(target)
+      return value
+    },
+  }
+  return state
+}
+
 function host(options: {
   sessions?: Map<string, any>
   agents?: Map<string, any>
@@ -42,7 +63,10 @@ function host(options: {
   return {
     root: { fiber: { _disposables: options.disposables ?? [] } },
     registry: { values: () => [] },
-    sessions: { get: (id: string) => sessions.get(id) },
+    sessions: {
+      get: (id: string) => sessions.get(id),
+      list: () => [...sessions.values()],
+    },
     agents: { get: (id: string) => agents.get(id) },
     agentLoop: options.agentLoop ?? {},
     sessionPersistence: options.persistence,
@@ -73,7 +97,7 @@ describe('SessionDeleteService', () => {
     await expect(service.delete('session-id')).resolves.toBe(true)
     await expect(access(owned)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(state.states.has('session-id')).toBe(false)
-    expect(state.invalidated).toEqual(['session-id', 'session-id'])
+    expect(state.invalidated).toEqual(['session-id'])
   })
 
   it('runs the exact rc.8 AgentLoop lifecycle disposer before erasing', async () => {
@@ -175,11 +199,156 @@ describe('SessionDeleteService', () => {
       persistence: {
         name: 'session-persistence-jsonl',
         coordinator: coordinator('child'),
-        list: async () => [{ id: 'child', parentSession: 'parent', origin: 'subagent' }],
+        list: async () => [
+          { id: 'parent' },
+          { id: 'child', parentSession: 'parent', origin: 'subagent' },
+        ],
         locate: () => ({ kind: 'jsonl', path: '/tmp/session.jsonl' }),
       },
     }))
     await expect(service.delete('child')).rejects.toBeInstanceOf(SessionDeleteBusyError)
+  })
+
+  it('allows direct deletion of an orphaned managed child', async () => {
+    const deleted: string[] = []
+    const service = new SessionDeleteService(host({
+      persistence: {
+        name: 'future-native',
+        list: async () => [{ id: 'orphan', parentSession: 'gone', origin: 'subagent' }],
+        locate: () => undefined,
+        delete: async (id: string) => { deleted.push(id); return true },
+      },
+    }))
+    await expect(service.delete('orphan')).resolves.toBe(true)
+    expect(deleted).toEqual(['orphan'])
+  })
+
+  it('cascades managed subagent descendants before the parent and spares ordinary forks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-session-manager-cascade-'))
+    temporaryRoots.push(root)
+    const logs: Record<string, string> = {}
+    for (const id of ['parent', 'child', 'grandchild', 'fork', 'forkChild']) {
+      const owned = join(root, 'project', id)
+      await mkdir(owned, { recursive: true })
+      await writeFile(join(owned, 'session.jsonl'), 'fixture')
+      logs[id] = join(owned, 'session.jsonl')
+    }
+    const state = familyCoordinator(['grandchild', 'child', 'parent'])
+    const service = new SessionDeleteService(host({
+      persistence: {
+        name: 'session-persistence-jsonl',
+        root,
+        coordinator: state,
+        list: async () => [
+          { id: 'parent' },
+          { id: 'child', parentSession: 'parent', origin: 'subagent' },
+          { id: 'grandchild', parentSession: 'child', origin: 'subagent' },
+          { id: 'fork', parentSession: 'parent' },
+          { id: 'forkChild', parentSession: 'fork', origin: 'subagent' },
+        ],
+        locate: (header: { id: string }) => ({ kind: 'jsonl', path: logs[header.id] }),
+      },
+    }))
+
+    await expect(service.delete('parent')).resolves.toBe(true)
+    for (const id of ['parent', 'child', 'grandchild']) {
+      await expect(access(logs[id]), id).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+    await expect(access(logs.fork), 'ordinary fork survives').resolves.toBeUndefined()
+    // Deepest lineage first: the parent's own erase runs last.
+    expect(state.order).toEqual(['grandchild', 'child', 'forkChild', 'parent'])
+    await expect(access(logs.forkChild), 'managed child below ordinary fork is removed').rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('discovers a live child that has not materialized yet', async () => {
+    const sessions = new Map([
+      ['parent', { id: 'parent', header: { id: 'parent' } }],
+      ['live-child', { id: 'live-child', header: { id: 'live-child', parentSession: 'parent', origin: 'subagent' } }],
+    ])
+    const agents = new Map([['parent', { id: 'parent' }], ['live-child', { id: 'live-child' }]])
+    const stopped: string[] = []
+    const deleted: string[] = []
+    const service = new SessionDeleteService(host({
+      sessions,
+      agents,
+      agentLoop: {
+        stop: async (id: string) => {
+          stopped.push(id)
+          sessions.delete(id)
+          agents.delete(id)
+          return true
+        },
+      },
+      persistence: {
+        name: 'future-native',
+        list: async () => [{ id: 'parent' }],
+        locate: () => undefined,
+        delete: async (id: string) => { deleted.push(id); return true },
+      },
+    }))
+    await expect(service.delete('parent')).resolves.toBe(true)
+    expect(stopped).toEqual(['parent', 'live-child'])
+    expect(deleted).toEqual(['parent'])
+  })
+
+  it('aborts before deleting the parent when a managed child cannot be deleted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-session-manager-abort-'))
+    temporaryRoots.push(root)
+    const parentOwned = join(root, 'project', 'parent')
+    const grandchildOwned = join(root, 'project', 'grandchild')
+    await mkdir(parentOwned, { recursive: true })
+    await mkdir(grandchildOwned, { recursive: true })
+    const parentLog = join(parentOwned, 'session.jsonl')
+    const grandchildLog = join(grandchildOwned, 'session.jsonl')
+    await writeFile(parentLog, 'fixture')
+    await writeFile(grandchildLog, 'fixture')
+    const state = familyCoordinator(['grandchild', 'child', 'parent'])
+    state.preparations.entries.set('child', { phase: 'reserved' })
+    const service = new SessionDeleteService(host({
+      persistence: {
+        name: 'session-persistence-jsonl',
+        root,
+        coordinator: state,
+        list: async () => [
+          { id: 'parent' },
+          { id: 'child', parentSession: 'parent', origin: 'subagent' },
+          { id: 'grandchild', parentSession: 'child', origin: 'subagent' },
+        ],
+        locate: (header: { id: string }) => ({
+          kind: 'jsonl',
+          path: join(root, 'project', header.id, 'session.jsonl'),
+        }),
+      },
+    }))
+
+    await expect(service.delete('parent')).rejects.toThrow(/unpublished reserved persistence preparation/)
+    // The untouched parent proves the abort happened before the target erase.
+    await expect(access(parentLog)).resolves.toBeUndefined()
+    await expect(access(grandchildLog)).resolves.toBeUndefined()
+  })
+
+  it('treats a managed child that vanished mid-cascade as already deleted', async () => {
+    let listCalls = 0
+    const deleted: string[] = []
+    const lists = [
+      [{ id: 'parent' }, { id: 'child', parentSession: 'parent', origin: 'subagent' }],
+      [{ id: 'parent' }],
+      [{ id: 'parent' }],
+    ]
+    const service = new SessionDeleteService(host({
+      persistence: {
+        name: 'future-native',
+        list: async () => lists[Math.min(listCalls++, lists.length - 1)],
+        locate: () => undefined,
+        delete: async (id: string) => {
+          deleted.push(id)
+          return true
+        },
+      },
+    }))
+
+    await expect(service.delete('parent')).resolves.toBe(true)
+    expect(deleted).toEqual(['parent'])
   })
 
   it('reports a missing identity without touching storage', async () => {

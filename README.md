@@ -23,18 +23,19 @@
 - **完整会话列表**：实时、冷会话、已归档或未归档会话，按更新时间展示标题、状态、工作目录等信息。
 - **继续会话**：通过浏览器 sessions 服务打开已有对话。
 - **大纲预览**：在浏览器内折叠 `session.history` 尾部窗口，展示轮次、用户/助手消息数及工具调用统计。
-- **永久删除**：先停止并等待实时 Agent 静默、脱离 Agent/Session 注册表、等待最终持久化排空，再删除存储数据。
+- **永久删除**：先停止并等待目标 Agent 静默，再重新读取 live 与 durable 会话树，预检通过后删除存储数据。删除会话时会级联删除其全部 `origin: subagent` 受管子会话（最深优先）；普通 fork 自身保留，但会继续遍历其下的受管子会话。
+- **多选批量删除**：列表左侧复选框中可多选，工具栏一次性删除全部选中项。仅"独立删除目标"可勾选(普通会话与孤儿受管子会话；有父会话的受管子会话随父级联删除，不单独出现)。批量删除逐个独立走完整安全删除流程，某个删除失败不会回滚已成功的，并会在确认框列出剩余失败项以便重试。
 - **JSONL**：删除该会话拥有的整个目录，包括日志和同目录快照。
 - **SQLite**：在当前后端连接中执行事务删除，事件行通过外键级联清理。
 - **未来兼容**：若后续 harness 原生提供 `AgentLoop.stop` 或 `SessionPersistence.delete`，插件优先调用原生能力。
 
-普通 fork 可以删除。`origin: subagent` 的子会话仍由父 Agent 管理，界面不提供删除按钮，直接请求会返回 `agent-busy`。
+普通 fork 可以独立删除。`origin: subagent` 的受管子会话随仍存在的父会话级联删除：界面不提供子会话自己的删除按钮，删除父会话时确认框会提示将一并删除的子会话数量；直接对子会话发起删除请求仍返回 `agent-busy`。如果父会话已经不存在，该行会标记为孤儿并显示删除按钮，允许直接清理。删除前会先预检整棵子树，已知失败不会先删除其他成员。
 
 ## 兼容范围
 
 - 目标版本：DeepSeek Harness `0.1.0-rc.8`。
 - 已支持官方持久化后端：`session-persistence-jsonl`、`session-persistence-sqlite`。
-- 自定义持久化后端必须自行提供 `delete(id)`，否则插件会明确拒绝，不会猜测或直接删除未知存储。
+- 自定义持久化后端必须自行提供 `delete(id)`；如果需要级联删除多个 durable 会话，还必须提供原子 `deleteMany(ids)`，否则插件会明确拒绝该级联请求，不会逐个删除造成半删。
 - 删除端点仅允许 loopback authority，例如 `localhost`、`127.0.0.0/8`、`[::1]`；通过局域网地址打开页面时只显示继续和大纲。
 
 Host 实现针对 rc.8 缺失的三处能力做兼容补齐，并使用 rc.8 的内部 lifecycle/coordinator 结构。因此升级 harness 后应先运行本仓库测试；当上游提供原生接口时，插件会优先走原生接口，减少对兼容层的依赖。
@@ -48,10 +49,10 @@ pnpm install
 pnpm pack
 ```
 
-再将生成的 `dsh-session-manager-0.2.0.tgz` 安装到 web profile：
+再将生成的 `dsh-session-manager-0.2.2.tgz` 安装到 web profile：
 
 ```sh
-dsh plugin --profile web add -w ./dsh-session-manager-0.2.0.tgz
+dsh plugin --profile web add -w ./dsh-session-manager-0.2.2.tgz
 ```
 
 安装后重启 `dsh web`。
@@ -75,8 +76,8 @@ dsh plugin --profile web add -w ./dsh-session-manager-0.2.0.tgz
 1. 浏览器读取 `session.list` 和 `workspace.list`，得到完整会话语料及归档状态。
 2. 删除请求通过 Connection 通用 RPC caller 发送到 `/api/session.delete`。
 3. 插件 Host 端先执行与 harness 相同的 loopback/同源安全检查。
-4. 若会话实时运行，插件调用原生 `AgentLoop.stop`，或定位 rc.8 的精确 `agentLoop.lifecycle(<id>)` disposer，并等待完整 teardown。
-5. 插件等待 persistence retirement，在 coordinator 的同一 session-id 串行链中删除 JSONL/SQLite 数据，并清理缓存与状态。
+4. 删除父会话时先停止父 Agent，再读取 live 与 durable 子树并停止其中的受管生命周期，防止删除窗口产生漏删。
+5. 插件预检整棵删除计划；JSONL 使用可恢复暂存，SQLite 使用单事务，native backend 优先使用批量删除能力。
 6. 客户端重新读取列表，确保最终展示与 Host 实际状态一致。
 
 ## 开发与验证
@@ -88,12 +89,13 @@ pnpm build
 pnpm pack
 ```
 
-测试覆盖控制器竞态、loopback/Origin 拒绝、实时 lifecycle teardown、JSONL 目录删除、SQLite 事务删除、subagent 拒绝和同 id 并发去重。
+测试覆盖控制器竞态、孤儿子会话判定、loopback/Origin 拒绝、实时 lifecycle teardown、JSONL 可恢复删除、SQLite 事务删除、subagent 拒绝、普通 fork 下的级联遍历、live 子会话、失败预检和同 id 并发去重。
 
 ## 已知限制
 
 - 大纲来自 `session.history` 的近期窗口，不是完整日志统计。
 - 删除已归档会话不会清理 workspace 中过期的 `archivedSessionIds`；该条目是惰性的，不会让会话数据复活。
+- `origin: subagent` 孤儿行可以在本页面直接删除；如果它下面还有受管子会话，会按同样规则级联清理。
 - 会话列表没有跨标签页实时推送，页面会在删除和重连后刷新。
 - 非 loopback 页面不显示删除能力。
 

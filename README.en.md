@@ -23,18 +23,19 @@ Users install this plugin and restart `dsh web`. They do not copy code into harn
 - **Complete session list**: live and cold sessions, archived or not, with title, status, working directory, and update time.
 - **Resume**: opens an existing conversation through the browser sessions service.
 - **Outline**: folds the recent `session.history` window in the browser into turn, message, and tool-call counts.
-- **Permanent delete**: stops and drains a live Agent, detaches its Agent/Session registrations, waits for final persistence retirement, and then removes durable data.
+- **Permanent delete**: stops the target Agent, refreshes the live and durable session tree, preflights the family, and then removes durable data. Deleting a session also cascades to every managed `origin: subagent` descendant (deepest first); ordinary forks remain, but traversal continues through them to managed descendants.
+- **Multi-select bulk delete**: check the boxes on the list to pick several sessions and remove them all from the toolbar in one go. Only independent deletion targets are selectable (ordinary sessions and orphaned managed children; a managed child with a live parent is removed with that parent and never appears on its own). Each deleted id runs the full per-session delete flow independently, so one failure does not roll back the already-removed sessions and the leftover ids are listed for a retry.
 - **JSONL**: removes the complete session-owned directory, including the log and colocated snapshots.
 - **SQLite**: deletes through the active backend connection in a transaction; event rows are removed by the schema's foreign-key cascade.
 - **Forward compatibility**: native `AgentLoop.stop` and `SessionPersistence.delete` methods are preferred when a future harness supplies them.
 
-Ordinary forks are deletable. Child sessions with `origin: subagent` remain owned by their parent Agent; the UI hides Delete and direct requests return `agent-busy`.
+Ordinary forks are deletable on their own. Managed `origin: subagent` children die with an existing parent: the UI offers no per-child Delete, the confirm dialog states how many managed children a cascade will remove, and direct requests for a child still return `agent-busy`. If the parent has disappeared, the row is marked orphaned and gets its own Delete button. The whole family is preflighted before destructive work, so known failures do not delete siblings first.
 
 ## Compatibility
 
 - Target: DeepSeek Harness `0.1.0-rc.8`.
 - Supported first-party persistence backends: `session-persistence-jsonl` and `session-persistence-sqlite`.
-- A custom persistence backend must expose `delete(id)` itself. Unknown storage is rejected explicitly rather than guessed or modified directly.
+- A custom persistence backend must expose `delete(id)` itself; a cascade over multiple durable sessions additionally requires atomic `deleteMany(ids)`. The plugin rejects unsupported cascades rather than deleting one member at a time.
 - The delete endpoint accepts loopback authorities only: `localhost`, `127.0.0.0/8`, and `[::1]`. A page opened through a LAN address retains Resume and Outline but does not offer Delete.
 
 The Host implementation fills three interfaces missing from rc.8 and uses rc.8 lifecycle/coordinator internals. Re-run this repository's tests before upgrading harness. As native upstream methods become available, the plugin selects them first and avoids the relevant compatibility path.
@@ -48,10 +49,10 @@ pnpm install
 pnpm pack
 ```
 
-Install the emitted `dsh-session-manager-0.2.0.tgz` into the web profile:
+Install the emitted `dsh-session-manager-0.2.2.tgz` into the web profile:
 
 ```sh
-dsh plugin --profile web add -w ./dsh-session-manager-0.2.0.tgz
+dsh plugin --profile web add -w ./dsh-session-manager-0.2.2.tgz
 ```
 
 Restart `dsh web` after installation.
@@ -75,8 +76,8 @@ Deletion is irreversible. Deleting an open live conversation removes it from the
 1. The browser reads `session.list` and `workspace.list` for the complete corpus and archive state.
 2. Delete uses Connection's generic RPC caller to POST `/api/session.delete`.
 3. The plugin Host half applies the same loopback and same-origin checks used by harness.
-4. For a live session it calls native `AgentLoop.stop`, or locates rc.8's exact `agentLoop.lifecycle(<id>)` disposer and awaits complete teardown.
-5. It waits for persistence retirement, then deletes JSONL/SQLite data on the coordinator's per-session serialization chain and clears cached state.
+4. For a parent deletion it stops the parent first, then reads the live and durable subtree and stops managed lifecycles before deletion, preventing children from being admitted during the window.
+5. It preflights the whole plan; JSONL uses recoverable staging, SQLite uses one transaction, and native backends may provide an atomic batch delete.
 6. The client reloads the corpus so the view reflects final Host state.
 
 ## Development
@@ -88,12 +89,13 @@ pnpm build
 pnpm pack
 ```
 
-Tests cover controller races, loopback/Origin rejection, live lifecycle teardown, JSONL directory deletion, SQLite transactions, subagent refusal, and same-id request coalescing.
+Tests cover controller races, orphan classification, loopback/Origin rejection, live lifecycle teardown, recoverable JSONL deletion, SQLite transactions, subagent refusal, traversal through ordinary forks, live children, preflight failures, and same-id request coalescing.
 
 ## Known Limitations
 
 - Outline describes the recent `session.history` window, not the complete log.
 - Deleting an archived session does not remove its stale id from `archivedSessionIds`; that inert registry entry cannot restore session data.
+- An orphaned `origin: subagent` row can be deleted directly; any managed descendants below it are removed in the same cascade.
 - The corpus has no cross-tab push refresh; the panel reloads after deletion and reconnection.
 - Delete is unavailable from non-loopback pages.
 

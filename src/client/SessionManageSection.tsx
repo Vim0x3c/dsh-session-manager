@@ -17,6 +17,7 @@ import {
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionManageState, SessionOutline } from './session-manage-store.ts'
+import { countManagedDescendants, isDirectlyDeletable, isOrphanSession } from './session-manage-store.ts'
 import type { SessionManageKey } from './locales.ts'
 import css from './SessionManageSection.module.css'
 
@@ -30,10 +31,16 @@ export interface SessionManageInjected {
   load: () => Promise<void>
   /** Switch the GUI to the given session's conversation. */
   openSession: (id: string) => void
-  /** Ask for delete confirmation, or dismiss it with null. */
-  confirmDelete: (id: string | null) => void
-  /** Delete the session awaiting confirmation. */
+  /** Ask for delete confirmation for one or several sessions, or dismiss with null. */
+  confirmDelete: (ids: string[] | null) => void
+  /** Delete the session(s) awaiting confirmation. */
   remove: () => Promise<void>
+  /** Toggle one row in the multi-select selection set. */
+  toggleSelect: (id: string) => void
+  /** Clear the multi-select selection set. */
+  clearSelection: () => void
+  /** Select every independently-deletable row, or clear them. */
+  toggleSelectAllDeletable: () => void
   /** Open the outline dialog for one session. */
   loadOutline: (id: string) => Promise<void>
   /** Close the outline dialog. */
@@ -97,27 +104,50 @@ function SessionRow({
   confirmDelete,
   close,
   canDelete,
+  rows,
+  checked,
+  onToggle,
 }: {
   row: SessionManageState['rows'][number]
   t: (key: SessionManageKey) => string
   openSession: (id: string) => void
   loadOutline: (id: string) => Promise<void>
-  confirmDelete: (id: string) => void
+  confirmDelete: (ids: string[]) => void
   close: () => void
   canDelete: boolean
+  rows: SessionManageState['rows']
+  checked: boolean
+  onToggle: (id: string) => void
 }): ReactNode {
   const title = row.title ?? t('noTitle')
-  // A subagent session is owned and deleted by its parent; ordinary forks may
-  // carry parentSession lineage but remain independent deletion targets.
-  const deletable = canDelete && row.origin !== 'subagent'
+  // Managed children stay parent-owned while their parent exists. An orphaned
+  // subagent is a standalone cleanup target and gets the normal delete action.
+  const orphan = isOrphanSession(rows, row)
+  const directlyDeletable = isDirectlyDeletable(rows, row)
+  const deletable = canDelete && directlyDeletable
+  const selectable = canDelete && directlyDeletable
   const badges = [
     row.archived ? t('archived') : null,
     row.running ? t('running') : t('idle'),
     row.blank ? t('blank') : null,
     row.origin === 'subagent' ? t('managed') : null,
+    orphan ? t('orphan') : null,
   ].filter((badge): badge is string => badge !== null)
   return (
     <li className={css.row}>
+      {selectable ? (
+        <label className={css.checkWrap}>
+          <input
+            type="checkbox"
+            className={css.check}
+            checked={checked}
+            onChange={() => { onToggle(row.sessionId) }}
+            aria-label={`${t('select')}: ${title}`}
+          />
+        </label>
+      ) : (
+        <span className={css.checkSpacer} aria-hidden="true" />
+      )}
       <div className={css.rowBody}>
         <span className={css.rowHead}>
           <span className={`${css.dot} ${row.running ? css.dotRunning : ''}`} aria-hidden="true" />
@@ -161,7 +191,7 @@ function SessionRow({
             className={`${css.iconButton} ${css.iconDanger}`}
             data-tip={t('delete')}
             aria-label={`${t('delete')}: ${title}`}
-            onClick={() => { confirmDelete(row.sessionId) }}
+            onClick={() => { confirmDelete([row.sessionId]) }}
           >
             <IconTrashOutline16 />
           </button>
@@ -179,14 +209,22 @@ function SessionRow({
 export function SessionManageSection(props: SessionManageSectionProps): ReactNode {
   const {
     useSessionManage, t, load, openSession, confirmDelete, remove, loadOutline, closeOutline, close,
+    toggleSelect, clearSelection, toggleSelectAllDeletable,
   } = props
   const state = useSessionManage(snapshot => snapshot)
-  const pendingRow = state.pendingDelete === null
-    ? undefined
-    : state.rows.find(row => row.sessionId === state.pendingDelete)
+  const pendingRows = state.pendingDelete === null
+    ? []
+    : state.pendingDelete
+        .map(id => state.rows.find(row => row.sessionId === id))
+        .filter((row): row is SessionManageState['rows'][number] => row !== undefined)
   const outlineRow = state.outline === null
     ? undefined
     : state.rows.find(row => row.sessionId === state.outline?.sessionId)
+  const selectedCount = state.selected.size
+  const deletableCount = state.canDelete
+    ? state.rows.filter(row => isDirectlyDeletable(state.rows, row)).length
+    : 0
+  const allSelected = deletableCount > 0 && selectedCount >= deletableCount
   useEffect(() => {
     void load()
   }, [load])
@@ -207,20 +245,63 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
       ) : state.status === 'ready' && state.rows.length === 0 ? (
         <p className={css.empty}>{t('empty')}</p>
       ) : (
-        <ul className={css.rows}>
-          {state.rows.map(row => (
-            <SessionRow
-              key={row.sessionId}
-              row={row}
-              t={t}
-              openSession={openSession}
-              loadOutline={loadOutline}
-              confirmDelete={confirmDelete}
-              close={close}
-              canDelete={state.canDelete}
-            />
-          ))}
-        </ul>
+        <>
+          {state.canDelete && deletableCount > 0 ? (
+            <div className={css.toolbar} role="toolbar" aria-label={t('bulkDelete')}>
+              <Button
+                variant="outline"
+                className={css.toolbarButton}
+                disabled={state.deleting}
+                onClick={() => { toggleSelectAllDeletable() }}
+              >
+                {allSelected ? t('selectNone') : t('selectAll')}
+              </Button>
+              <Button
+                variant="outline"
+                className={css.toolbarButton}
+                disabled={state.deleting}
+                onClick={() => {
+                  // Confirm the bulk delete with the currently checked ids.
+                  const ids = state.rows
+                    .filter(row => state.selected.has(row.sessionId))
+                    .map(row => row.sessionId)
+                  confirmDelete(ids)
+                }}
+              >
+                {selectedCount === 0
+                  ? t('bulkDelete')
+                  : t('bulkDeleteCount').replace('{n}', String(selectedCount))}
+              </Button>
+              {selectedCount > 0 ? (
+                <Button
+                  variant="outline"
+                  className={css.toolbarButton}
+                  disabled={state.deleting}
+                  onClick={() => { clearSelection() }}
+                >
+                  {t('clearSelected')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <ul className={css.rows}>
+            {state.rows.map(row => (
+              <SessionRow
+                key={row.sessionId}
+                row={row}
+                t={t}
+                openSession={openSession}
+                loadOutline={loadOutline}
+                confirmDelete={confirmDelete}
+                close={close}
+                canDelete={state.canDelete}
+                rows={state.rows}
+                checked={state.selected.has(row.sessionId)}
+                onToggle={toggleSelect}
+              />
+            ))}
+          </ul>
+        </>
       )}
       <Modal
         open={state.pendingDelete !== null}
@@ -250,14 +331,32 @@ export function SessionManageSection(props: SessionManageSectionProps): ReactNod
           </>
         )}
       >
-        {pendingRow === undefined
+        {pendingRows.length === 0
           ? null
-          : (
-            <p className={css.deleteTarget}>
-              {pendingRow.title ?? t('noTitle')}
-              <code>{pendingRow.sessionId}</code>
-            </p>
-          )}
+          : pendingRows.length === 1
+            ? (
+              <p className={css.deleteTarget}>
+                {pendingRows[0].title ?? t('noTitle')}
+                <code>{pendingRows[0].sessionId}</code>
+              </p>
+            )
+            : (
+              <ul className={css.deleteTargetList}>
+                {pendingRows.map(row => (
+                  <li key={row.sessionId}>
+                    {row.title ?? t('noTitle')}
+                    <code>{row.sessionId}</code>
+                  </li>
+                ))}
+              </ul>
+            )}
+        {state.pendingDelete === null ? null : (() => {
+          const cascade = state.pendingDelete
+            .reduce((sum, id) => sum + countManagedDescendants(state.rows, id), 0)
+          if (cascade === 0) return null
+          const key = state.pendingDelete.length === 1 ? 'deleteCascade' : 'deleteCascadeMany'
+          return <p className={css.deleteNote} role="note">{t(key).replace('{n}', String(cascade))}</p>
+        })()}
         {state.deleteError === null
           ? null
           : <p className={css.deleteError} role="alert">{state.deleteError}</p>}

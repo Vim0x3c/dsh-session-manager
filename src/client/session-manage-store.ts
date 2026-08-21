@@ -35,10 +35,15 @@ export interface SessionRow {
   /**
    * fork/spawn lineage (session.header.parentSession passthrough); absent for
    * root sessions. Ordinary forks remain deletable; only `origin: subagent`
-   * identifies a child lifecycle managed by its parent.
+   * identifies a child lifecycle managed by its parent. An origin-marked row
+   * whose parent is absent from the loaded corpus is an orphan and is directly
+   * deletable.
    */
   parentSessionId?: SessionId
-  /** Coarse durable origin; 'subagent' rows are deleted by their parent, not here. */
+  /**
+   * Coarse durable origin; a row with `origin: subagent` and a live/durable
+   * parent is removed by deleting that parent, while an orphan is standalone.
+   */
   origin?: 'subagent'
 }
 
@@ -55,8 +60,17 @@ export interface SessionManageState {
   deleteError: string | null
   /** Every session on this machine, newest first. */
   rows: readonly SessionRow[]
-  /** The session awaiting delete confirmation, or null. */
-  pendingDelete: string | null
+  /**
+   * Session ids the user flagged for a bulk delete (the multi-select toolbar),
+   * or null when nothing is selected.
+   */
+  selected: ReadonlySet<string>
+  /**
+   * The session id(s) awaiting delete confirmation. Either one id (the row
+   * trash button) or several (the multi-select toolbar). null = dialog closed.
+   * Rendered as a list so a batch confirms exactly what it will remove.
+   */
+  pendingDelete: string[] | null
   /** Whether a delete is in flight. */
   deleting: boolean
   /**
@@ -97,9 +111,9 @@ export interface SessionOutline {
 }
 
 /** Transport adapter for the plugin-owned session.delete endpoint. */
-export type DeleteSession = (sessionId: SessionId) => Promise<{
+export type DeleteSession = (sessionIds: readonly SessionId[]) => Promise<{
   result:
-    | { ok: true; value: { deleted: boolean } }
+    | { ok: true; value: { deleted: boolean; deletedIds?: SessionId[]; failed?: Array<{ id: string; message: string }> } }
     | { ok: false; error: { message: string } }
 }>
 
@@ -108,6 +122,7 @@ const INITIAL: SessionManageState = {
   error: null,
   deleteError: null,
   rows: [],
+  selected: new Set(),
   pendingDelete: null,
   deleting: false,
   canDelete: true,
@@ -174,6 +189,55 @@ function toRow(summary: SessionSummary, archived: ReadonlySet<SessionId>): Sessi
   }
 }
 
+/** Whether an origin-marked row has no live/durable parent in this corpus. */
+export function isOrphanSession(rows: readonly SessionRow[], row: SessionRow): boolean {
+  return row.origin === 'subagent'
+    && (row.parentSessionId === undefined
+      || !rows.some(candidate => candidate.sessionId === row.parentSessionId))
+}
+
+/**
+ * Whether a row is an independent deletion target (the multi-select toolbar
+ * only offers these). Managed children are removed by deleting their parent,
+ * so they are not selectable on their own; an orphaned subagent is standalone
+ * and is selectable.
+ */
+export function isDirectlyDeletable(rows: readonly SessionRow[], row: SessionRow): boolean {
+  return row.origin !== 'subagent' || isOrphanSession(rows, row)
+}
+
+/**
+ * Count managed subagent descendants of one session among the loaded rows.
+ * Ordinary sessions remain independent deletion targets but are traversal
+ * nodes, matching Harness `listDescendants` semantics.
+ */
+export function countManagedDescendants(
+  rows: readonly SessionRow[],
+  sessionId: string,
+): number {
+  const childrenOf = new Map<string, string[]>()
+  for (const row of rows) {
+    if (row.parentSessionId === undefined) continue
+    if (row.sessionId === sessionId) continue
+    const siblings = childrenOf.get(row.parentSessionId)
+    if (siblings === undefined) childrenOf.set(row.parentSessionId, [row.sessionId])
+    else siblings.push(row.sessionId)
+  }
+  const visited = new Set<string>([sessionId])
+  let count = 0
+  const walk = (parentId: string): void => {
+    for (const child of childrenOf.get(parentId) ?? []) {
+      if (visited.has(child)) continue
+      visited.add(child)
+      const childRow = rows.find(row => row.sessionId === child)
+      if (childRow?.origin === 'subagent') count += 1
+      walk(child)
+    }
+  }
+  walk(sessionId)
+  return count
+}
+
 /** Reads the corpus and drives the delete confirmation. */
 export class SessionManageController {
   /** Page snapshot the renderer subscribes to. */
@@ -196,8 +260,8 @@ export class SessionManageController {
   ) {
     const nativeDelete = (api.sessions as Record<string, unknown>).delete
     this.deleteSession = deleteSession ?? (typeof nativeDelete === 'function'
-      ? sessionId => (nativeDelete as (req: { sessionId: SessionId }) => ReturnType<DeleteSession>)(
-          { sessionId },
+      ? ids => (nativeDelete as (req: { sessionIds: SessionId[] }) => ReturnType<DeleteSession>)(
+          { sessionIds: [...ids] },
         )
       : undefined)
   }
@@ -216,7 +280,7 @@ export class SessionManageController {
   setCanDelete(canDelete: boolean): void {
     this.set({
       canDelete,
-      ...canDelete ? {} : { pendingDelete: null, deleteError: null },
+      ...canDelete ? {} : { pendingDelete: null, deleteError: null, selected: new Set() },
     })
   }
 
@@ -269,10 +333,56 @@ export class SessionManageController {
     }
   }
 
-  /** Ask for delete confirmation, or dismiss it with null. */
-  confirmDelete(sessionId: string | null): void {
+  /** Ask for delete confirmation for one or several sessions, or dismiss with null. */
+  confirmDelete(sessionIds: string[] | null): void {
     if (this.store.getSnapshot().deleting) return
-    this.set({ pendingDelete: sessionId, deleteError: null })
+    this.set({ pendingDelete: sessionIds, deleteError: null })
+  }
+
+  /** Toggle one row in the multi-select set. Never allows a delete while busy. */
+  toggleSelect(sessionId: string): void {
+    if (this.store.getSnapshot().deleting) return
+    const { selected } = this.store.getSnapshot()
+    const next = new Set(selected)
+    if (next.has(sessionId)) next.delete(sessionId)
+    else next.add(sessionId)
+    this.set({ selected: next, deleteError: null })
+  }
+
+  /** Clear the multi-select set. */
+  clearSelection(): void {
+    if (this.store.getSnapshot().deleting) return
+    this.set({ selected: new Set(), deleteError: null })
+  }
+
+  /**
+   * Select every independently-deletable session, or deselect all when the
+   * whole corpus is already selected. Managed children are never selectable:
+   * they are removed with their parent, so selecting them would double-count
+   * the cascade.
+   */
+  toggleSelectAllDeletable(): void {
+    if (this.store.getSnapshot().deleting) return
+    const { rows, selected } = this.store.getSnapshot()
+    const selectable = rows
+      .filter(row => isDirectlyDeletable(rows, row))
+      .map(row => row.sessionId)
+    const allSelected = selectable.length > 0 && selectable.every(id => selected.has(id))
+    this.set({
+      selected: allSelected ? new Set() : new Set(selectable),
+      deleteError: null,
+    })
+  }
+
+  /** The rows currently checked for a bulk delete. */
+  selectedRows(): SessionRow[] {
+    const { rows, selected } = this.store.getSnapshot()
+    return rows.filter(row => selected.has(row.sessionId))
+  }
+
+  /** Whether the multi-select toolbar currently has anything to act on. */
+  hasSelection(): boolean {
+    return this.store.getSnapshot().selected.size > 0
   }
 
   /**
@@ -313,19 +423,21 @@ export class SessionManageController {
   }
 
   /**
-   * Delete the session awaiting confirmation and re-read the corpus. A live
+   * Delete the session(s) awaiting confirmation and re-read the corpus. A live
    * session is stopped and detached by the host before its durable data is
    * removed, so after a successful delete the row is gone everywhere.
    *
    * On failure the confirm dialog stays open and the reason is surfaced in
    * `deleteError` (agent-busy, session-not-found, loopback 403, network, or an
    * absent host method). The list load state is never collapsed by a delete
-   * failure.
-   * @returns once the delete settled and the page reflects it.
+   * failure. A bulk delete removes each selected session independently, so a
+   * partial failure still deletes the ones that could be removed and reports
+   * the rest via `deleteError`.
+   * @returns once the delete(s) settled and the page reflects it.
    */
   async remove(): Promise<void> {
     const { pendingDelete, deleting, canDelete } = this.store.getSnapshot()
-    if (pendingDelete === null || deleting) return
+    if (pendingDelete === null || pendingDelete.length === 0 || deleting) return
     if (!canDelete) {
       this.set({ deleteError: 'Deletion is only available from a local (loopback) browser session.' })
       return
@@ -336,12 +448,25 @@ export class SessionManageController {
     }
     this.set({ deleting: true, deleteError: null })
     try {
-      const response = await this.deleteSession(pendingDelete as SessionId)
+      const response = await this.deleteSession(pendingDelete as SessionId[])
       if (!response.result.ok) {
         this.set({ deleting: false, deleteError: response.result.error.message })
         return
       }
-      this.set({ deleting: false, pendingDelete: null, deleteError: null })
+      const failed = response.result.value.failed ?? []
+      const remaining = failed.length === 0
+        ? null
+        : pendingDelete.filter(id => failed.some(failure => failure.id === id))
+      this.set({
+        deleting: false,
+        // Keep the dialog open only if something could not be removed, listing
+        // those ids so the user can retry just them once the cause is fixed.
+        pendingDelete: remaining,
+        deleteError: failed.length === 0
+          ? null
+          : `${failed.length} session(s) could not be deleted: ${failed.map(f => f.message).join('; ')}`,
+        selected: new Set(),
+      })
       await this.load()
     } catch (error) {
       this.set({ deleting: false, deleteError: messageOf(error) })

@@ -73,6 +73,26 @@
   min-width: 0;
 }
 
+/* Multi-select checkbox column at the row's leading edge. */
+.checkWrap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--dsw-alias-interactive-accent-primary);
+  cursor: pointer;
+}
+
+.checkSpacer {
+  flex: none;
+  width: 16px;
+}
+
 .rowTitle {
   font-size: 14px;
   font-weight: 500;
@@ -160,6 +180,46 @@
 
 .deleteDialog {
   max-width: 420px;
+}
+
+/* Multi-select toolbar above the list: select-all, bulk delete, clear. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarButton {
+  padding: 0 10px;
+  height: 28px;
+  font-size: 13px;
+}
+
+/* Bulk-delete confirm body: the list of selected sessions. */
+.deleteTargetList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.deleteTargetList li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  word-break: break-all;
+}
+
+.deleteTargetList code {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .deleteConfirm {

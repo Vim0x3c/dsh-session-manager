@@ -27,7 +27,7 @@ function response() {
   }
 }
 
-function setup() {
+function setup(ids: string[] = ['s1']) {
   let route: any
   const deleted: string[] = []
   const ctx = {
@@ -41,7 +41,7 @@ function setup() {
     agentLoop: {},
     sessionPersistence: {
       name: 'future-native',
-      list: async () => [{ id: 's1' }],
+      list: async () => ids.map(id => ({ id })),
       locate: () => undefined,
       delete: async (id: string) => { deleted.push(id); return true },
     },
@@ -64,9 +64,44 @@ describe('session.delete host route', () => {
     expect(JSON.parse(value.body)).toEqual({
       type: 'server-response',
       rpcId: 'rpc-1',
-      result: { ok: true, value: { deleted: true } },
+      result: { ok: true, value: { deleted: true, deletedIds: ['s1'] } },
     })
     expect(deleted).toEqual(['s1'])
+  })
+
+  it('deletes several ids from one bulk request', async () => {
+    const { route, deleted } = setup(['s1', 's2'])
+    const { res, value } = response()
+    await route.handler(request('127.0.0.1:8848', {
+      type: 'client-request',
+      rpcId: 'rpc-bulk',
+      method: 'session.delete',
+      payload: { sessionIds: ['s1', 's2'] },
+    }, 'http://127.0.0.1:8848'), res)
+    expect(value.status).toBe(200)
+    const body = JSON.parse(value.body)
+    expect(body.type).toBe('server-response')
+    expect(body.rpcId).toBe('rpc-bulk')
+    expect(body.result.ok).toBe(true)
+    expect(body.result.value.deleted).toBe(true)
+    expect(body.result.value.deletedIds).toEqual(['s1', 's2'])
+    expect(deleted).toEqual(['s1', 's2'])
+  })
+
+  it('rejects a bulk request that mixes invalid sessionIds', async () => {
+    const { route, deleted } = setup()
+    const { res, value } = response()
+    await route.handler(request('127.0.0.1:8848', {
+      type: 'client-request',
+      rpcId: 'rpc-bad',
+      method: 'session.delete',
+      payload: { sessionIds: [] },
+    }, 'http://127.0.0.1:8848'), res)
+    expect(value.status).toBe(200)
+    const body = JSON.parse(value.body)
+    expect(body.result.ok).toBe(false)
+    expect(body.result.error.code).toBe('bad-request')
+    expect(deleted).toEqual([])
   })
 
   it('rejects non-loopback Host authorities before reading the body', async () => {

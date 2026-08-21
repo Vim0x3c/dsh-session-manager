@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-manager",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Self-contained dsh web session management: UI, live teardown, and JSONL/SQLite deletion",
   "author": "vim0x3c",
   "repository": {

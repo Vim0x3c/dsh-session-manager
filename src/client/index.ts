@@ -36,9 +36,9 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'sessions']
 export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle
   const { api, isLoopback } = connection
-  const controller = new SessionManageController(api, async (sessionId) => ({
-    result: await connection.rpc.call('/api', 'session.delete', { sessionId }) as
-      | { ok: true; value: { deleted: boolean } }
+  const controller = new SessionManageController(api, async (sessionIds) => ({
+    result: await connection.rpc.call('/api', 'session.delete', { sessionIds: [...sessionIds] }) as
+      | { ok: true; value: { deleted: boolean; deletedIds?: SessionId[]; failed?: Array<{ id: string; message: string }> } }
       | { ok: false; error: { message: string } },
   }))
 
@@ -66,8 +66,11 @@ export function apply(ctx: ClientContext): void {
     hooks: { sessionManage: controller.store },
     load: () => controller.load(),
     openSession: (id) => { ctx.sessions.open(id as SessionId) },
-    confirmDelete: (id: string | null) => { controller.confirmDelete(id) },
+    confirmDelete: (ids: string[] | null) => { controller.confirmDelete(ids) },
     remove: () => controller.remove(),
+    toggleSelect: (id: string) => { controller.toggleSelect(id) },
+    clearSelection: () => { controller.clearSelection() },
+    toggleSelectAllDeletable: () => { controller.toggleSelectAllDeletable() },
     loadOutline: (id: string) => controller.loadOutline(id),
     closeOutline: () => { controller.closeOutline() },
   })

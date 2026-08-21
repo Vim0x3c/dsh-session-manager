@@ -75,21 +75,34 @@ async function handleDeleteRequest(
     return
   }
 
-  try {
-    const deleted = await service.delete(parsed.sessionId)
-    sendRpc(res, parsed.rpcId, { ok: true, value: { deleted } })
-  } catch (error: unknown) {
-    if (error instanceof SessionDeleteNotFoundError) {
-      sendRpc(res, parsed.rpcId, rpcError('session-not-found', error.message, { sessionId: parsed.sessionId }))
-      return
+  // One id (the single-row action) or several ids (the bulk toolbar). Both go
+  // through the same per-session lifecycle so every member is preflighted and
+  // erased independently.
+  const ids = parsed.sessionIds ?? [parsed.sessionId]
+  if (ids.length === 1) {
+    try {
+      const deleted = await service.delete(ids[0])
+      sendRpc(res, parsed.rpcId, { ok: true, value: { deleted, deletedIds: ids } })
+    } catch (error: unknown) {
+      if (error instanceof SessionDeleteNotFoundError) {
+        sendRpc(res, parsed.rpcId, rpcError('session-not-found', error.message, { sessionId: ids[0] }))
+        return
+      }
+      if (error instanceof SessionDeleteBusyError) {
+        sendRpc(res, parsed.rpcId, rpcError('agent-busy', error.message, { reason: error.message }))
+        return
+      }
+      ctx.logger.warn(`dsh-session-manager: deletion of session "${ids[0]}" failed: ${String(error)}`)
+      sendRpc(res, parsed.rpcId, rpcError('internal', error instanceof Error ? error.message : String(error), {}))
     }
-    if (error instanceof SessionDeleteBusyError) {
-      sendRpc(res, parsed.rpcId, rpcError('agent-busy', error.message, { reason: error.message }))
-      return
-    }
-    ctx.logger.warn(`dsh-session-manager: deletion of session "${parsed.sessionId}" failed: ${String(error)}`)
-    sendRpc(res, parsed.rpcId, rpcError('internal', error instanceof Error ? error.message : String(error), {}))
+    return
   }
+
+  const outcome = await service.deleteMany(ids)
+  sendRpc(res, parsed.rpcId, {
+    ok: true,
+    value: { deleted: outcome.deleted.length > 0, deletedIds: outcome.deleted, failed: outcome.failed },
+  })
 }
 
 interface DeleteEnvelope {
@@ -100,7 +113,7 @@ interface DeleteEnvelope {
 }
 
 type ParsedDeleteEnvelope =
-  | { ok: true; rpcId: string; sessionId: string }
+  | { ok: true; rpcId: string; sessionId: string; sessionIds?: string[] }
   | { ok: false; rpcId: string; message: string }
 
 function parseDeleteEnvelope(value: unknown): ParsedDeleteEnvelope {
@@ -112,12 +125,23 @@ function parseDeleteEnvelope(value: unknown): ParsedDeleteEnvelope {
     || envelope.type !== 'client-request' || envelope.method !== METHOD) {
     return { ok: false, rpcId, message: 'invalid client-request message' }
   }
-  const payload = envelope.payload as { sessionId?: unknown } | null
-  if (payload === null || typeof payload !== 'object'
-    || typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) {
-    return { ok: false, rpcId, message: 'session.delete requires a non-empty sessionId' }
+  const payload = envelope.payload as { sessionId?: unknown; sessionIds?: unknown } | null
+  if (payload === null || typeof payload !== 'object') {
+    return { ok: false, rpcId, message: 'delete requires a sessionId or sessionIds payload' }
   }
-  return { ok: true, rpcId, sessionId: payload.sessionId }
+  // Single id (the row action).
+  if (typeof payload.sessionId === 'string' && payload.sessionId.length > 0) {
+    return { ok: true, rpcId, sessionId: payload.sessionId }
+  }
+  // Bulk ids (the toolbar): must be a non-empty array of non-empty strings.
+  if (Array.isArray(payload.sessionIds)) {
+    const ids = payload.sessionIds
+    if (ids.length > 0 && ids.every(id => typeof id === 'string' && id.length > 0)) {
+      return { ok: true, rpcId, sessionId: ids[0], sessionIds: ids as string[] }
+    }
+    return { ok: false, rpcId, message: 'sessionIds must be a non-empty array of non-empty strings' }
+  }
+  return { ok: false, rpcId, message: 'session.delete requires a non-empty sessionId or sessionIds' }
 }
 
 function rpcError(code: string, message: string, details: object): {

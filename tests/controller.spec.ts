@@ -6,10 +6,18 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  SessionManageController, foldOutline,
+  SessionManageController, countManagedDescendants, foldOutline, isOrphanSession,
 } from '../src/client/session-manage-store.ts'
+import type { SessionRow } from '../src/client/session-manage-store.ts'
 
-interface FakeSession { sessionId: string; updatedAt: number; running: boolean; blank: boolean; parentSessionId?: string }
+interface FakeSession {
+  sessionId: string
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  parentSessionId?: string
+  origin?: 'subagent'
+}
 
 function session(row: Partial<FakeSession> & { sessionId: string }): FakeSession {
   return { running: false, blank: false, updatedAt: 1, ...row }
@@ -61,6 +69,7 @@ function toSummaryLike(s: FakeSession) {
     running: s.running,
     blank: s.blank,
     ...s.parentSessionId === undefined ? {} : { parentSessionId: s.parentSessionId },
+    ...s.origin === undefined ? {} : { origin: s.origin },
   }
 }
 
@@ -98,12 +107,12 @@ describe('SessionManageController', () => {
       deleteResult: { ok: false, error: { message: 'agent-busy' } },
     })
     await controller.load()
-    controller.confirmDelete('s1')
-    expect(controller.store.getSnapshot().pendingDelete).toBe('s1')
+    controller.confirmDelete(['s1'])
+    expect(controller.store.getSnapshot().pendingDelete).toEqual(['s1'])
     await controller.remove()
     const state = controller.store.getSnapshot()
     // The confirm dialog stays open so the user sees the reason.
-    expect(state.pendingDelete).toBe('s1')
+    expect(state.pendingDelete).toEqual(['s1'])
     expect(state.deleteError).toBe('agent-busy')
     expect(state.status).toBe('ready') // list is not collapsed by a delete failure
   })
@@ -114,7 +123,7 @@ describe('SessionManageController', () => {
       deleteResult: { ok: true, value: { deleted: true } },
     })
     await controller.load()
-    controller.confirmDelete('s1')
+    controller.confirmDelete(['s1'])
     await controller.remove()
     const state = controller.store.getSnapshot()
     expect(state.pendingDelete).toBeNull()
@@ -127,7 +136,7 @@ describe('SessionManageController', () => {
     const { controller } = makeController({ sessions: [session({ sessionId: 's1' })] })
     await controller.load()
     controller.setCanDelete(false)
-    controller.confirmDelete('s1')
+    controller.confirmDelete(['s1'])
     await controller.remove()
     const state = controller.store.getSnapshot()
     expect(state.deleting).toBe(false)
@@ -158,7 +167,7 @@ describe('SessionManageController', () => {
     const controller = new SessionManageController(api)
     await controller.load()
     controller.setCanDelete(true)
-    controller.confirmDelete('s1')
+    controller.confirmDelete(['s1'])
     await controller.remove()
     const state = controller.store.getSnapshot()
     expect(state.deleting).toBe(false)
@@ -244,5 +253,122 @@ describe('SessionManageController', () => {
     const outline = foldOutline([{ event: { type: 'turn/start', data: {}, time: 5 } } as never] as any)
     expect(outline.turns).toBe(1)
     expect(outline.startedAt).toBe(5)
+  })
+})
+
+describe('countManagedDescendants', () => {
+  const row = (sessionId: string, extra: Partial<SessionRow> = {}): SessionRow => ({
+    sessionId,
+    title: null,
+    updatedAt: 1,
+    running: false,
+    blank: false,
+    archived: false,
+    ...extra,
+  })
+
+  it('counts managed descendants through ordinary traversal nodes', () => {
+    const rows = [
+      row('root'),
+      row('child', { parentSessionId: 'root', origin: 'subagent' }),
+      row('grandchild', { parentSessionId: 'child', origin: 'subagent' }),
+      row('fork', { parentSessionId: 'root' }),
+      row('forkChild', { parentSessionId: 'fork', origin: 'subagent' }),
+    ]
+    expect(countManagedDescendants(rows, 'root')).toBe(3)
+    expect(countManagedDescendants(rows, 'fork')).toBe(1)
+    expect(countManagedDescendants(rows, 'grandchild')).toBe(0)
+    expect(countManagedDescendants(rows, 'missing')).toBe(0)
+  })
+
+  it('marks a missing-parent managed row as an orphan', () => {
+    const orphan = row('orphan', { parentSessionId: 'gone', origin: 'subagent' })
+    const unparented = row('unparented', { origin: 'subagent' })
+    const parent = row('parent')
+    expect(isOrphanSession([orphan], orphan)).toBe(true)
+    expect(isOrphanSession([unparented], unparented)).toBe(true)
+    expect(isOrphanSession([parent, { ...orphan, parentSessionId: 'parent' }], {
+      ...orphan,
+      parentSessionId: 'parent',
+    })).toBe(false)
+  })
+
+  it('never loops on a corrupt cyclic lineage', () => {
+    const rows = [
+      row('a'),
+      row('b', { parentSessionId: 'a', origin: 'subagent' }),
+      row('c', { parentSessionId: 'b', origin: 'subagent' }),
+    ]
+    // Corrupt the tail into claiming the root as its own child.
+    rows[2] = { ...rows[2], parentSessionId: 'a' }
+    expect(countManagedDescendants(rows, 'a')).toBe(2)
+  })
+
+  it('toggles a single row in and out of the selection set', async () => {
+    const { controller } = makeController({
+      sessions: [session({ sessionId: 'a' }), session({ sessionId: 'b' })],
+    })
+    await controller.load()
+    controller.toggleSelect('a')
+    expect([...controller.store.getSnapshot().selected]).toEqual(['a'])
+    controller.toggleSelect('b')
+    expect([...controller.store.getSnapshot().selected]).toEqual(['a', 'b'])
+    controller.toggleSelect('a')
+    expect([...controller.store.getSnapshot().selected]).toEqual(['b'])
+    controller.clearSelection()
+    expect(controller.store.getSnapshot().selected.size).toBe(0)
+  })
+
+  it('select-all picks only independently-deletable rows, not managed children', async () => {
+    const { controller } = makeController({
+      sessions: [
+        session({ sessionId: 'root' }),
+        session({ sessionId: 'child', parentSessionId: 'root', origin: 'subagent' }),
+        session({ sessionId: 'orphan', parentSessionId: 'gone', origin: 'subagent' }),
+        session({ sessionId: 'fork' }),
+      ],
+    })
+    await controller.load()
+    controller.toggleSelectAllDeletable()
+    const selected = [...controller.store.getSnapshot().selected]
+    // root + orphan + fork are independent targets; 'child' is managed and skipped.
+    expect(selected.sort()).toEqual(['fork', 'orphan', 'root'])
+  })
+
+  it('bulk delete removes every checked row and clears the selection', async () => {
+    const seen: string[][] = []
+    const { api } = makeController({
+      sessions: [session({ sessionId: 'a' }), session({ sessionId: 'b' }), session({ sessionId: 'c' })],
+    })
+    // Override the transport with one that captures the bulk payload.
+    const service = new SessionManageController(api, async (ids) => {
+      seen.push([...ids])
+      return { result: { ok: true, value: { deleted: true, deletedIds: [...ids] } } }
+    })
+    await service.load()
+    service.confirmDelete(['a', 'b'])
+    await service.remove()
+    expect(seen).toEqual([['a', 'b']])
+    const state = service.store.getSnapshot()
+    expect(state.pendingDelete).toBeNull()
+    expect(state.selected.size).toBe(0)
+  })
+
+  it('keeps a bulk dialog open when some ids fail and reports each reason', async () => {
+    const { api } = makeController({ sessions: [session({ sessionId: 'a' }), session({ sessionId: 'b' })] })
+    const service = new SessionManageController(api, async () => ({
+      result: { ok: true, value: {
+        deleted: true,
+        deletedIds: ['a'],
+        failed: [{ id: 'b', message: 'nope' }],
+      } },
+    }))
+    await service.load()
+    service.confirmDelete(['a', 'b'])
+    await service.remove()
+    const state = service.store.getSnapshot()
+    expect(state.pendingDelete).toEqual(['b'])
+    expect(state.deleteError).toContain('nope')
+    expect(state.selected.size).toBe(0)
   })
 })

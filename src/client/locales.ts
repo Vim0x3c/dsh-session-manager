@@ -11,7 +11,8 @@ export type SessionManageKey =
   | 'outlineTurns' | 'outlineUserMessages' | 'outlineAssistantMessages' | 'outlineToolCalls'
   | 'outlineNoTools' | 'outlineRange'
   | 'delete' | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting'
-  | 'deleteUnavailable'
+  | 'deleteCascade' | 'deleteCascadeMany' | 'orphan' | 'deleteUnavailable'
+  | 'select' | 'selectAll' | 'selectNone' | 'clearSelected' | 'bulkDelete' | 'bulkDeleteCount'
   | 'cancel' | 'close'
 
 /** English copy. */
@@ -53,7 +54,16 @@ export const en: Record<SessionManageKey, string> = {
     + 'are permanently deleted. This cannot be undone.',
   deleteConfirm: 'Delete',
   deleting: 'Deleting…',
+  deleteCascade: 'Its {n} managed child session(s) will be permanently deleted too.',
+  deleteCascadeMany: 'The selected sessions own {n} managed child session(s) that will be permanently deleted too.',
+  orphan: 'orphaned',
   deleteUnavailable: 'Deletion is only available from a local (loopback) browser session, or is not supported by this dsh version.',
+  select: 'Select',
+  selectAll: 'Select all',
+  selectNone: 'Select none',
+  clearSelected: 'Clear selection',
+  bulkDelete: 'Delete selected',
+  bulkDeleteCount: 'Delete selected ({n})',
   cancel: 'Cancel',
   close: 'Close',
 }
@@ -94,7 +104,16 @@ export const zh: Record<SessionManageKey, string> = {
     '若会话正在运行将被停止,其对话记录与持久化数据将被永久删除。此操作不可恢复。',
   deleteConfirm: '删除',
   deleting: '正在删除…',
+  deleteCascade: '将同时永久删除它的 {n} 个受管子会话。',
+  deleteCascadeMany: '本次选中的会话共拥有 {n} 个受管子会话,将一并永久删除。',
+  orphan: '孤儿',
   deleteUnavailable: '删除仅在本机(loopback)浏览器会话内可用,或当前 dsh 版本不支持该操作。',
+  select: '选择',
+  selectAll: '全选',
+  selectNone: '取消全选',
+  clearSelected: '清空已选',
+  bulkDelete: '删除已选',
+  bulkDeleteCount: '删除已选 ({n})',
   cancel: '取消',
   close: '关闭',
 }
